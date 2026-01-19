@@ -1,0 +1,200 @@
+"""
+GitHub Backup - Scheduler Module
+
+Provides scheduled backup execution using APScheduler with state persistence.
+"""
+
+import logging
+import signal
+import sys
+from typing import Callable
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
+
+from config import Settings
+from sync_state_manager import SyncStateManager
+from ui.console import console
+
+logger = logging.getLogger(__name__)
+
+
+class BackupScheduler:
+    """Manages scheduled backup execution with state persistence."""
+
+    def __init__(self, settings: Settings, backup_func: Callable[[], bool]):
+        """Initialize the backup scheduler.
+
+        Args:
+            settings: Application settings.
+            backup_func: Function to call for backup execution, returns success status.
+        """
+        self.settings = settings
+        self.backup_func = backup_func
+        self.scheduler = BlockingScheduler()
+        self.state_manager = SyncStateManager(settings.data_dir)
+        self._setup_signal_handlers()
+
+    def _setup_signal_handlers(self) -> None:
+        """Setup graceful shutdown handlers."""
+        def signal_handler(signum, frame):
+            logger.info("Received shutdown signal, stopping scheduler...")
+            console.print("\n[yellow]Shutting down scheduler...[/]")
+            self.scheduler.shutdown(wait=False)
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+    def _run_backup_with_state(self) -> None:
+        """Run backup and update sync state on success."""
+        try:
+            success = self.backup_func()
+            if success:
+                self.state_manager.update_sync_time()
+                logger.info("Sync state updated after successful backup")
+        except Exception as e:
+            logger.error(f"Backup execution failed: {e}")
+            raise
+
+    def _job_listener(self, event: JobExecutionEvent) -> None:
+        """Handle job execution events.
+
+        Args:
+            event: Job execution event.
+        """
+        if event.exception:
+            logger.error(f"Backup job failed: {event.exception}")
+            console.print(f"[red]Backup job failed: {event.exception}[/]")
+        else:
+            logger.info("Backup job completed successfully")
+
+    def _create_trigger(self):
+        """Create the appropriate trigger based on schedule mode.
+
+        Returns:
+            APScheduler trigger instance.
+        """
+        mode = self.settings.backup_schedule_mode
+        hour = self.settings.backup_schedule_hour
+        minute = self.settings.backup_schedule_minute
+        day_of_week = self.settings.backup_schedule_day_of_week
+        interval_hours = self.settings.backup_schedule_interval_hours
+
+        if mode == "interval":
+            return IntervalTrigger(hours=interval_hours)
+        elif mode == "weekly":
+            # For weekly mode, day_of_week should be a specific day
+            dow = day_of_week if day_of_week != "*" else "0"  # Default to Monday
+            return CronTrigger(
+                day_of_week=dow,
+                hour=hour,
+                minute=minute,
+            )
+        else:  # daily (default)
+            return CronTrigger(
+                day_of_week=day_of_week,
+                hour=hour,
+                minute=minute,
+            )
+
+    def _get_schedule_description(self) -> str:
+        """Get human-readable schedule description.
+
+        Returns:
+            Schedule description string.
+        """
+        mode = self.settings.backup_schedule_mode
+        hour = self.settings.backup_schedule_hour
+        minute = self.settings.backup_schedule_minute
+        day_of_week = self.settings.backup_schedule_day_of_week
+        interval_hours = self.settings.backup_schedule_interval_hours
+
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+        if mode == "interval":
+            if interval_hours == 1:
+                return "Every hour"
+            elif interval_hours == 24:
+                return f"Every day at {hour:02d}:{minute:02d}"
+            else:
+                return f"Every {interval_hours} hours"
+        elif mode == "weekly":
+            dow = day_of_week if day_of_week != "*" else "0"
+            day_name = day_names[int(dow)]
+            return f"Weekly on {day_name} at {hour:02d}:{minute:02d}"
+        else:  # daily
+            if day_of_week == "*":
+                return f"Daily at {hour:02d}:{minute:02d}"
+            else:
+                days = [day_names[int(d.strip())] for d in day_of_week.split(",")]
+                return f"On {', '.join(days)} at {hour:02d}:{minute:02d}"
+
+    def start(self) -> None:
+        """Start the scheduler.
+
+        Checks for missed backups on startup and runs them if needed.
+        """
+        from ui.console import print_scheduler_info
+
+        if not self.settings.backup_schedule_enabled:
+            logger.warning("Scheduler is disabled in configuration")
+            console.print("[yellow]Scheduler is disabled. Use --now to run immediately.[/]")
+            return
+
+        # Check for missed backup on startup (only for daily/weekly modes)
+        if self.settings.backup_schedule_mode != "interval":
+            if self.state_manager.should_run_backup(
+                self.settings.backup_schedule_hour,
+                self.settings.backup_schedule_minute,
+            ):
+                console.print("[yellow]Missed scheduled backup detected, running now...[/]")
+                logger.info("Running missed backup on startup")
+                self._run_backup_with_state()
+
+        # Create trigger based on mode
+        trigger = self._create_trigger()
+
+        self.scheduler.add_job(
+            self._run_backup_with_state,
+            trigger,
+            id="github_backup",
+            name="GitHub Backup",
+            replace_existing=True,
+        )
+
+        # Add event listener
+        self.scheduler.add_listener(
+            self._job_listener,
+            EVENT_JOB_EXECUTED | EVENT_JOB_ERROR,
+        )
+
+        # Print scheduler info
+        schedule_desc = self._get_schedule_description()
+        print_scheduler_info(schedule_desc)
+
+        # Log next run time
+        job = self.scheduler.get_job("github_backup")
+        if job and job.next_run_time:
+            logger.info(f"Next backup scheduled for: {job.next_run_time}")
+
+        # Start the scheduler (blocks)
+        try:
+            self.scheduler.start()
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("Scheduler stopped")
+
+
+def setup_scheduler(settings: Settings, backup_func: Callable[[], bool]) -> BackupScheduler:
+    """Create and configure the backup scheduler.
+
+    Args:
+        settings: Application settings.
+        backup_func: Function to call for backup execution, returns success status.
+
+    Returns:
+        Configured BackupScheduler instance.
+    """
+    return BackupScheduler(settings, backup_func)

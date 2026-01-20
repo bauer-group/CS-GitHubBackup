@@ -522,12 +522,12 @@ GITHUB_PAT=
 | Public repos | Yes | Yes |
 | Private repos | Yes | No |
 | Rate limit | 5000/hour | 60/hour |
-| Issues export | Full | May be limited |
-| PR export | Full | May be limited |
-| Releases export | Full | Full |
+| Issues export | Full | Full (public repos) |
+| PR export | Full | Full (public repos) |
+| Releases export | Full | Full (public repos) |
 | Wiki backup | Full | Public wikis only |
 
-> **Note:** In unauthenticated mode, some metadata exports may fail silently if the API restricts access. The backup will continue with a warning logged. For complete backups, authenticated mode is strongly recommended.
+> **Important:** The main limitation in unauthenticated mode is the **60 requests/hour rate limit**. For organizations with many repositories or repos with many issues/PRs, the backup may hit rate limits and pause. Use authenticated mode for reliable backups of larger accounts.
 
 ---
 

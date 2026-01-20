@@ -5,6 +5,7 @@ GitHub Backup - Main Entry Point
 Automated backup of GitHub repositories to S3-compatible storage.
 """
 
+import logging
 import shutil
 import sys
 import time
@@ -31,6 +32,8 @@ from ui.console import (
     setup_logging,
     format_size,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def run_backup(settings: Settings) -> bool:
@@ -80,6 +83,9 @@ def run_backup(settings: Settings) -> bool:
         if not s3_storage.ensure_bucket_exists():
             print_error("Failed to access or create S3 bucket")
             return False
+
+        # Connect state manager to S3 for persistence
+        state_manager.set_s3_storage(s3_storage)
 
         # Get repositories
         console.print(f"[dim]Fetching repositories for {settings.github_owner}...[/]")
@@ -322,7 +328,8 @@ def main() -> int:
             success = run_backup(settings)
             # Update sync state on successful backup
             if success:
-                state_manager = SyncStateManager(settings.data_dir)
+                s3_storage = S3Storage(settings)
+                state_manager = SyncStateManager(settings.data_dir, s3_storage)
                 state_manager.update_sync_time()
             return 0 if success else 1
 

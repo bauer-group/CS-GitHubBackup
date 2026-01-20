@@ -3,13 +3,19 @@ GitHub Backup - Sync State Manager
 
 Persists backup state across container restarts to prevent duplicate backups.
 Tracks per-repository state for incremental backup support.
+
+State is stored locally and synced to S3 to survive container restarts
+and data volume loss.
 """
 
 import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from storage.s3_client import S3Storage
 
 logger = logging.getLogger(__name__)
 
@@ -49,23 +55,67 @@ class SyncStateManager:
     Stores the last successful backup timestamp and per-repository state,
     allowing the scheduler to determine whether a backup is needed and
     enabling incremental backups for unchanged repositories.
+
+    State is stored locally and synced to S3 for persistence across
+    container restarts and data volume loss.
     """
 
     STATE_FILE = "state.json"
 
-    def __init__(self, data_dir: str = "/data"):
+    def __init__(self, data_dir: str = "/data", s3_storage: Optional["S3Storage"] = None):
         """Initialize sync state manager.
 
         Args:
             data_dir: Directory to store state file.
+            s3_storage: Optional S3Storage instance for remote state sync.
         """
         self.state_file = Path(data_dir) / self.STATE_FILE
+        self.s3_storage = s3_storage
         self._ensure_data_dir()
         self._state: Optional[dict] = None
+
+        # Restore state from S3 on startup if local state is missing
+        self._restore_state_from_s3()
 
     def _ensure_data_dir(self) -> None:
         """Ensure data directory exists."""
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    def _restore_state_from_s3(self) -> None:
+        """Restore state from S3 if local state is missing or outdated.
+
+        Downloads state from S3 bucket when:
+        - Local state file doesn't exist (fresh container/volume)
+        - S3 state is newer than local state
+        """
+        if self.s3_storage is None:
+            return
+
+        if not self.state_file.exists():
+            # No local state - try to restore from S3
+            logger.info("No local state found, checking S3 for saved state...")
+            if self.s3_storage.download_state(self.state_file):
+                logger.info("State restored from S3")
+            else:
+                logger.debug("No state in S3 (first run)")
+
+    def _sync_state_to_s3(self) -> None:
+        """Upload state to S3 for persistence."""
+        if self.s3_storage is None:
+            return
+
+        if self.s3_storage.upload_state(self.state_file):
+            logger.debug("State synced to S3")
+
+    def set_s3_storage(self, s3_storage: "S3Storage") -> None:
+        """Set S3 storage for state sync (can be called after init).
+
+        Args:
+            s3_storage: S3Storage instance for remote state sync.
+        """
+        self.s3_storage = s3_storage
+        # Try to restore state now that we have S3
+        self._restore_state_from_s3()
 
     def _load_state(self) -> dict:
         """Load state from file."""
@@ -89,7 +139,7 @@ class SyncStateManager:
             return self._state
 
     def _save_state(self) -> None:
-        """Save state to file."""
+        """Save state to file and sync to S3."""
         if self._state is None:
             return
 
@@ -98,6 +148,8 @@ class SyncStateManager:
         try:
             with open(self.state_file, "w") as f:
                 json.dump(self._state, f, indent=2)
+            # Sync to S3 for persistence
+            self._sync_state_to_s3()
         except IOError as e:
             logger.error(f"Failed to write sync state: {e}")
 

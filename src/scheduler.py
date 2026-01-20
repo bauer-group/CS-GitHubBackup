@@ -14,6 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from config import Settings
+from storage.s3_client import S3Storage
 from sync_state_manager import SyncStateManager
 from ui.console import console
 
@@ -33,7 +34,10 @@ class BackupScheduler:
         self.settings = settings
         self.backup_func = backup_func
         self.scheduler: Scheduler | None = None
-        self.state_manager = SyncStateManager(settings.data_dir)
+
+        # Initialize S3 storage and state manager with S3 sync
+        self.s3_storage = S3Storage(settings)
+        self.state_manager = SyncStateManager(settings.data_dir, self.s3_storage)
 
     def _run_backup_with_state(self) -> None:
         """Run backup and update sync state on success."""

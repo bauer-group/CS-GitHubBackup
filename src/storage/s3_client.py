@@ -6,6 +6,7 @@ Provides S3-compatible storage operations for backup upload and retention manage
 
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -378,3 +379,75 @@ class S3Storage:
             pass
 
         return total_size
+
+    # === State File Operations ===
+
+    def get_state_key(self) -> str:
+        """Get the S3 key for the state file.
+
+        Returns:
+            S3 key for state.json.
+        """
+        return f"{self.prefix}/state.json"
+
+    def upload_state(self, local_path: Path) -> bool:
+        """Upload state file to S3.
+
+        Args:
+            local_path: Path to local state file.
+
+        Returns:
+            True if upload succeeded.
+        """
+        if not local_path.exists():
+            return False
+
+        key = self.get_state_key()
+
+        try:
+            self.s3.upload_file(str(local_path), self.bucket, key)
+            logger.debug(f"Uploaded state to s3://{self.bucket}/{key}")
+            return True
+        except ClientError as e:
+            logger.error(f"Failed to upload state to S3: {e}")
+            return False
+
+    def download_state(self, local_path: Path) -> bool:
+        """Download state file from S3.
+
+        Args:
+            local_path: Path to save state file locally.
+
+        Returns:
+            True if download succeeded, False if file doesn't exist or error.
+        """
+        key = self.get_state_key()
+
+        try:
+            # Ensure parent directory exists
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+
+            self.s3.download_file(self.bucket, key, str(local_path))
+            logger.info(f"Downloaded state from s3://{self.bucket}/{key}")
+            return True
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code == "404" or error_code == "NoSuchKey":
+                logger.debug(f"No state file found in S3 (first run)")
+                return False
+            logger.error(f"Failed to download state from S3: {e}")
+            return False
+
+    def get_state_last_modified(self) -> Optional[datetime]:
+        """Get last modified time of state file in S3.
+
+        Returns:
+            Last modified datetime or None if not found.
+        """
+        key = self.get_state_key()
+
+        try:
+            response = self.s3.head_object(Bucket=self.bucket, Key=key)
+            return response.get("LastModified")
+        except ClientError:
+            return None

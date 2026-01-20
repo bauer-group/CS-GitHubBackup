@@ -64,6 +64,7 @@ class AlertData:
     repos_skipped: int = 0
     repos_failed: int = 0
     total_repos: int = 0
+    lfs_repos: int = 0  # Repos with Git LFS
 
     # Metadata counts
     issues_count: int = 0

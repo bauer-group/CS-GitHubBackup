@@ -37,7 +37,8 @@ RUN apk add --no-cache \
     gcc \
     musl-dev \
     libffi-dev \
-    git
+    git \
+    git-lfs
 
 WORKDIR /app
 
@@ -79,9 +80,10 @@ LABEL org.opencontainers.image.documentation="https://github.com/bauer-group/CS-
 LABEL org.opencontainers.image.description="Automated GitHub repository backup to S3-compatible storage with scheduling, incremental backups, and alerting"
 LABEL org.opencontainers.image.version="0.0.0"
 
-# Runtime dependencies
+# Runtime dependencies (git-lfs for LFS repository support)
 RUN apk add --no-cache \
     git \
+    git-lfs \
     tzdata \
     tini \
     && rm -rf /var/cache/apk/*

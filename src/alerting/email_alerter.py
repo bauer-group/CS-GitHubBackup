@@ -145,6 +145,9 @@ class EmailAlerter(BaseAlerter):
             lines.append(f"Repositories Failed: {alert.repos_failed}")
 
         if alert.repos_backed_up > 0:
+            if alert.lfs_repos > 0:
+                lines.append(f"Repos with Git LFS: {alert.lfs_repos}")
+
             lines.extend([
                 f"Issues: {alert.issues_count}",
                 f"Pull Requests: {alert.prs_count}",
@@ -220,6 +223,14 @@ class EmailAlerter(BaseAlerter):
             """
 
         if alert.repos_backed_up > 0:
+            if alert.lfs_repos > 0:
+                stats_rows += f"""
+            <tr>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e0e0e0;">Repos with Git LFS</td>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e0e0e0; text-align: right;">{alert.lfs_repos}</td>
+            </tr>
+                """
+
             stats_rows += f"""
             <tr>
                 <td style="padding: 8px 12px; border-bottom: 1px solid #e0e0e0;">Issues</td>

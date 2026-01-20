@@ -64,6 +64,7 @@ def print_banner(backup_id: str) -> None:
 def print_repo_status(
     repo_name: str,
     git_size: Optional[str] = None,
+    lfs_size: Optional[str] = None,
     issues: Optional[int] = None,
     prs: Optional[int] = None,
     releases: Optional[int] = None,
@@ -79,6 +80,9 @@ def print_repo_status(
 
     if git_size:
         parts.append(f"[cyan]Git: {git_size}[/]")
+
+    if lfs_size:
+        parts.append(f"[bright_cyan]LFS: {lfs_size}[/]")
 
     if issues is not None:
         parts.append(f"[yellow]Issues: {issues}[/]")
@@ -115,6 +119,11 @@ def print_summary(stats: dict, duration_seconds: float) -> None:
 
     # Only show metadata counts if repos were backed up
     if repos_backed_up > 0:
+        # Show LFS repos if any
+        lfs_repos = stats.get("lfs_repos", 0)
+        if lfs_repos > 0:
+            table.add_row("Repos with LFS", str(lfs_repos))
+
         table.add_row("Issues", str(stats.get("issues", 0)))
         table.add_row("Pull Requests", str(stats.get("prs", 0)))
         table.add_row("Releases", str(stats.get("releases", 0)))

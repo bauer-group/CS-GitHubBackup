@@ -17,7 +17,7 @@ from scheduler import setup_scheduler
 from sync_state_manager import SyncStateManager
 from alerting.manager import AlertManager
 from backup.github_client import GitHubBackupClient
-from backup.git_operations import GitBackup
+from backup.git_operations import GitBackup, BackupResult
 from backup.metadata_exporter import MetadataExporter
 from backup.wiki_backup import WikiBackup
 from storage.s3_client import S3Storage
@@ -142,6 +142,7 @@ def run_backup(settings: Settings) -> bool:
                 repo_name = repo_info.name
                 repo_stats = {
                     "git_size": None,
+                    "lfs_size": None,
                     "issues": None,
                     "prs": None,
                     "releases": None,
@@ -150,20 +151,27 @@ def run_backup(settings: Settings) -> bool:
                 }
 
                 try:
-                    # Backup git repository
+                    # Backup git repository (including LFS if present)
                     clone_url = gh_client.get_clone_url(repo_info)
-                    bundle_path, bundle_size = git_backup.clone_and_bundle(
+                    backup_result = git_backup.clone_and_bundle(
                         clone_url, repo_name
                     )
 
-                    if bundle_path is not None:
-                        repo_stats["git_size"] = format_size(bundle_size)
-                        stats["total_size"] += bundle_size
-                        # Upload bundle to S3
-                        s3_storage.upload_file(bundle_path, backup_id, repo_name)
-                    else:
+                    if backup_result.is_empty:
                         # Empty repository - no commits
                         repo_stats["git_size"] = "empty"
+                    elif backup_result.bundle_path is not None:
+                        repo_stats["git_size"] = format_size(backup_result.bundle_size)
+                        stats["total_size"] += backup_result.bundle_size
+                        # Upload bundle to S3
+                        s3_storage.upload_file(backup_result.bundle_path, backup_id, repo_name)
+
+                        # Upload LFS archive if present
+                        if backup_result.lfs_path is not None:
+                            repo_stats["lfs_size"] = format_size(backup_result.lfs_size)
+                            stats["total_size"] += backup_result.lfs_size
+                            stats["lfs_repos"] = stats.get("lfs_repos", 0) + 1
+                            s3_storage.upload_file(backup_result.lfs_path, backup_id, repo_name)
 
                     # Backup metadata (use underlying repo object)
                     if settings.backup_include_metadata:
@@ -211,6 +219,7 @@ def run_backup(settings: Settings) -> bool:
                 print_repo_status(
                     repo_name,
                     git_size=repo_stats["git_size"],
+                    lfs_size=repo_stats["lfs_size"],
                     issues=repo_stats["issues"],
                     prs=repo_stats["prs"],
                     releases=repo_stats["releases"],

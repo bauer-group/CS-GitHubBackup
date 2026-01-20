@@ -106,6 +106,7 @@ class WebhookAlerter(BaseAlerter):
                 "repos_skipped": alert.repos_skipped,
                 "repos_failed": alert.repos_failed,
                 "total_repos": alert.total_repos,
+                "lfs_repos": alert.lfs_repos,
                 "issues": alert.issues_count,
                 "pull_requests": alert.prs_count,
                 "releases": alert.releases_count,

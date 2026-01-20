@@ -2,18 +2,38 @@
 GitHub Backup - Git Operations Module
 
 Provides git operations for cloning repositories and creating bundles.
+Includes Git LFS support for complete backups.
 """
 
 import logging
 import os
 import shutil
 import subprocess
+import tarfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from git import Repo, GitCommandError
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class BackupResult:
+    """Result of a repository backup operation."""
+
+    bundle_path: Optional[Path] = None
+    bundle_size: int = 0
+    lfs_path: Optional[Path] = None
+    lfs_size: int = 0
+    is_empty: bool = False
+    has_lfs: bool = False
+
+    @property
+    def total_size(self) -> int:
+        """Total size of all backup files."""
+        return self.bundle_size + self.lfs_size
 
 
 class GitBackup:
@@ -125,32 +145,168 @@ class GitBackup:
 
         return bundle_path
 
-    def clone_and_bundle(self, repo_url: str, repo_name: str) -> tuple[Optional[Path], int]:
-        """Clone a repository and create a bundle.
+    def has_lfs(self, mirror_path: Path) -> bool:
+        """Check if a repository uses Git LFS.
+
+        Args:
+            mirror_path: Path to the mirror repository.
+
+        Returns:
+            True if the repository uses LFS.
+        """
+        try:
+            # Check if git-lfs is installed
+            result = subprocess.run(
+                ["git", "lfs", "version"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                logger.debug("git-lfs not installed, skipping LFS check")
+                return False
+
+            # Check for LFS objects in the repo by listing LFS files
+            result = subprocess.run(
+                ["git", "lfs", "ls-files", "--all"],
+                cwd=str(mirror_path),
+                capture_output=True,
+                text=True,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+            )
+
+            # If there's output, repo has LFS files
+            has_lfs_files = bool(result.stdout.strip())
+            if has_lfs_files:
+                logger.debug(f"Repository uses LFS ({len(result.stdout.strip().splitlines())} files)")
+            return has_lfs_files
+
+        except Exception as e:
+            logger.debug(f"LFS check failed: {e}")
+            return False
+
+    def fetch_lfs_objects(self, mirror_path: Path) -> bool:
+        """Fetch all LFS objects for a repository.
+
+        Args:
+            mirror_path: Path to the mirror repository.
+
+        Returns:
+            True if LFS fetch succeeded.
+        """
+        repo_name = mirror_path.stem
+        logger.debug(f"Fetching LFS objects for {repo_name}...")
+
+        try:
+            result = subprocess.run(
+                ["git", "lfs", "fetch", "--all"],
+                cwd=str(mirror_path),
+                capture_output=True,
+                text=True,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+                timeout=3600,  # 1 hour timeout for large LFS repos
+            )
+
+            if result.returncode != 0:
+                logger.warning(f"LFS fetch returned non-zero: {result.stderr}")
+                # Continue anyway - partial LFS is better than none
+
+            return True
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"LFS fetch timed out for {repo_name}")
+            return False
+        except Exception as e:
+            logger.error(f"LFS fetch failed for {repo_name}: {e}")
+            return False
+
+    def create_lfs_archive(self, mirror_path: Path) -> Optional[Path]:
+        """Create a tar.gz archive of LFS objects.
+
+        Args:
+            mirror_path: Path to the mirror repository.
+
+        Returns:
+            Path to the LFS archive, or None if no LFS objects.
+        """
+        repo_name = mirror_path.stem
+        lfs_objects_dir = mirror_path / "lfs" / "objects"
+
+        # Check if LFS objects directory exists and has content
+        if not lfs_objects_dir.exists():
+            logger.debug(f"No LFS objects directory for {repo_name}")
+            return None
+
+        # Check if there are actual objects
+        lfs_files = list(lfs_objects_dir.rglob("*"))
+        lfs_files = [f for f in lfs_files if f.is_file()]
+
+        if not lfs_files:
+            logger.debug(f"LFS objects directory is empty for {repo_name}")
+            return None
+
+        archive_path = mirror_path.with_suffix(".lfs.tar.gz")
+        logger.debug(f"Creating LFS archive for {repo_name} ({len(lfs_files)} objects)...")
+
+        try:
+            with tarfile.open(archive_path, "w:gz") as tar:
+                # Add the lfs/objects directory with relative path
+                tar.add(
+                    lfs_objects_dir,
+                    arcname="lfs/objects",
+                    recursive=True
+                )
+
+            logger.info(f"Created LFS archive: {archive_path.name} ({archive_path.stat().st_size} bytes)")
+            return archive_path
+
+        except Exception as e:
+            logger.error(f"Failed to create LFS archive for {repo_name}: {e}")
+            if archive_path.exists():
+                archive_path.unlink()
+            return None
+
+    def clone_and_bundle(self, repo_url: str, repo_name: str) -> BackupResult:
+        """Clone a repository and create backup files (bundle + LFS if applicable).
 
         Args:
             repo_url: URL to clone from.
             repo_name: Name for the repository.
 
         Returns:
-            Tuple of (bundle_path, bundle_size_bytes).
-            bundle_path is None if the repository is empty.
-            bundle_size is 0 for empty repositories.
+            BackupResult with paths and sizes of backup files.
         """
+        result = BackupResult()
+
+        # Clone repository
         mirror_path = self.mirror_clone(repo_url, repo_name)
-        bundle_path = self.create_bundle(mirror_path)
 
-        if bundle_path is None:
-            # Empty repository - cleanup and return
+        # Check if empty
+        if self.is_empty_repo(mirror_path):
+            result.is_empty = True
             shutil.rmtree(mirror_path)
-            return None, 0
+            return result
 
-        bundle_size = bundle_path.stat().st_size
+        # Create git bundle
+        bundle_path = self.create_bundle(mirror_path)
+        if bundle_path:
+            result.bundle_path = bundle_path
+            result.bundle_size = bundle_path.stat().st_size
+
+        # Check for and handle LFS
+        if self.has_lfs(mirror_path):
+            result.has_lfs = True
+            logger.info(f"Repository {repo_name} uses Git LFS, fetching objects...")
+
+            if self.fetch_lfs_objects(mirror_path):
+                lfs_archive = self.create_lfs_archive(mirror_path)
+                if lfs_archive:
+                    result.lfs_path = lfs_archive
+                    result.lfs_size = lfs_archive.stat().st_size
 
         # Cleanup mirror directory to save space
         shutil.rmtree(mirror_path)
 
-        return bundle_path, bundle_size
+        return result
 
     def get_bundle_size(self, bundle_path: Path) -> int:
         """Get the size of a bundle file in bytes.

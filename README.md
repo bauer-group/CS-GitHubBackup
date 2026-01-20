@@ -5,6 +5,7 @@ Automated backup of GitHub repositories to S3-compatible storage (MinIO, AWS S3,
 ## Features
 
 - **Full Repository Backup** - Git mirror with complete history as portable bundles
+- **Git LFS Support** - Automatic backup of Git LFS objects as separate archives
 - **Incremental Backup** - Only backs up repositories that changed since last backup
 - **Metadata Export** - Issues, Pull Requests, and Releases as JSON
 - **Wiki Backup** - Repository wikis as separate bundles
@@ -168,6 +169,7 @@ The state is stored locally and synced to S3 for persistence across container re
 | Component | Description | Format |
 |-----------|-------------|--------|
 | **Git Repository** | Complete history including all branches, tags, and commits | `.bundle` |
+| **Git LFS Objects** | Large files stored via Git LFS (automatically detected) | `.lfs.tar.gz` |
 | **Wiki** | Repository wiki (if enabled and has content) | `.wiki.bundle` |
 | **Issues** | All issues with comments, labels, assignees, milestones | `issues.json` |
 | **Pull Requests** | All PRs with reviews, comments, merge status | `pull-requests.json` |
@@ -1061,36 +1063,40 @@ fi
 
 > **Note:** Git bundles cannot be opened with 7zip or other archive tools. They are Git's internal format containing packed objects with zlib compression.
 
-#### Git LFS Limitation
+#### Git LFS Support
 
-> **⚠️ Important:** Git bundles do **NOT** include Git LFS objects!
+This backup system **fully supports Git LFS** (Large File Storage). When a repository uses Git LFS:
 
-Git LFS (Large File Storage) works by storing small "pointer files" in the repository, while actual large files are stored on a separate LFS server. When creating a bundle:
+1. **Detection** - The system automatically detects LFS usage via `git lfs ls-files`
+2. **Fetch** - All LFS objects are downloaded with `git lfs fetch --all`
+3. **Archive** - LFS objects are packaged as a separate `.lfs.tar.gz` archive
+4. **Upload** - Both the bundle and LFS archive are uploaded to S3
 
-| Content | Included in Bundle? |
-| ------- | ------------------- |
-| Regular Git objects | ✓ Yes |
-| Branches and tags | ✓ Yes |
-| LFS pointer files | ✓ Yes (pointers only) |
-| LFS actual files | ✗ **No** |
+| Content | Backup File |
+| ------- | ----------- |
+| Git repository (commits, branches, tags) | `repo-name.bundle` |
+| Git LFS objects (large files) | `repo-name.lfs.tar.gz` |
+| Wiki (if enabled) | `repo-name.wiki.bundle` |
 
-**If your repositories use Git LFS**, you need additional backup measures:
+**Restore with LFS:**
 
 ```bash
-# After restoring from bundle, fetch LFS objects from original server
-cd restored-repo
-git lfs fetch --all origin
+# 1. Clone from bundle
+git clone my-repo.bundle my-repo
+cd my-repo
 
-# Or export LFS objects before backup
-git lfs fetch --all
+# 2. Extract LFS objects
+mkdir -p .git/lfs/objects
+tar -xzf ../my-repo.lfs.tar.gz -C .git/lfs/objects
+
+# 3. Checkout LFS files (replaces pointers with actual files)
 git lfs checkout
+
+# 4. Verify LFS files are restored
+git lfs ls-files
 ```
 
-For full LFS backup, consider:
-
-- Direct LFS server backup (if self-hosted)
-- GitHub's export feature for LFS content
-- Manual `git lfs fetch --all` before bundle creation
+**Note:** The LFS archive contains the raw object files from `.git/lfs/objects/`. After extracting to the same location in your cloned repo, `git lfs checkout` will replace the pointer files with actual content
 
 ### Disaster Recovery Checklist
 
@@ -1151,6 +1157,7 @@ s3://bucket/{S3_PREFIX}/{GITHUB_OWNER}/
 ├── repo-name/                        # Repository folder
 │   ├── 2024-01-15_02-00-00/          # Backup timestamp
 │   │   ├── repo-name.bundle          # Git bundle (full history)
+│   │   ├── repo-name.lfs.tar.gz      # LFS objects archive (if repo uses LFS)
 │   │   ├── repo-name.wiki.bundle     # Wiki bundle (if exists)
 │   │   └── metadata/
 │   │       ├── issues.json

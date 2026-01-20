@@ -141,6 +141,28 @@ BACKUP_INCREMENTAL=false
 
 ---
 
+### State Persistence
+
+The backup system maintains a state file (`state.json`) that tracks:
+
+- Last successful backup timestamp
+- Per-repository backup state (last `pushed_at`, backup ID)
+
+**State Synchronization:**
+
+The state is stored locally and synced to S3 for persistence across container restarts:
+
+| Situation                     | Behavior                                       |
+|-------------------------------|------------------------------------------------|
+| **Local exists, S3 missing**  | Local state is used; synced to S3 on next save |
+| **Local missing, S3 exists**  | State is restored from S3                      |
+| **Both exist**                | Local state is used (no comparison)            |
+| **Both missing**              | Fresh start, new state created                 |
+
+> **Note:** When both local and S3 state exist, the local state takes precedence. This ensures consistent behavior when running with persistent volumes.
+
+---
+
 ### What Gets Backed Up
 
 | Component | Description | Format |
@@ -940,6 +962,7 @@ cat metadata/issues.json | jq '.[] | {number, title, state}'
 | `BACKUP_SCHEDULE_DAY_OF_WEEK` | `*` | Days to run (0-6 or *) |
 | `BACKUP_SCHEDULE_INTERVAL_HOURS` | `24` | Hours between backups |
 | `S3_REGION` | `us-east-1` | S3 region |
+| `S3_PREFIX` | (empty) | Optional folder prefix in bucket |
 | `ALERT_ENABLED` | `false` | Enable alerting system |
 | `ALERT_LEVEL` | `errors` | Alert level (errors/warnings/all) |
 | `ALERT_CHANNELS` | (empty) | Active channels (email,webhook,teams) |
@@ -951,11 +974,12 @@ cat metadata/issues.json | jq '.[] | {number, title, state}'
 ## Backup Structure
 
 ```
-s3://bucket/github-backup/
-└── 2024-01-15_02-00-00/          # Backup timestamp
+s3://bucket/{S3_PREFIX}/{GITHUB_OWNER}/
+├── state.json                        # Sync state (for incremental backups)
+└── 2024-01-15_02-00-00/              # Backup timestamp
     ├── repo-name/
-    │   ├── repo-name.bundle      # Git bundle (full history)
-    │   ├── repo-name.wiki.bundle # Wiki bundle (if exists)
+    │   ├── repo-name.bundle          # Git bundle (full history)
+    │   ├── repo-name.wiki.bundle     # Wiki bundle (if exists)
     │   └── metadata/
     │       ├── issues.json
     │       ├── pull-requests.json
@@ -963,6 +987,14 @@ s3://bucket/github-backup/
     └── another-repo/
         └── ...
 ```
+
+**S3 Prefix Configuration:**
+
+| `S3_PREFIX`        | Resulting Path                              |
+|--------------------|---------------------------------------------|
+| (empty)            | `s3://bucket/{owner}/...`                   |
+| `github-backup`    | `s3://bucket/github-backup/{owner}/...`     |
+| `backups/github`   | `s3://bucket/backups/github/{owner}/...`    |
 
 ---
 

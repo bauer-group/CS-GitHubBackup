@@ -1098,6 +1098,33 @@ For large organizations, GitHub API rate limits may apply. The tool handles this
 
 ---
 
+## Roadmap / Planned Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **GitHub Discussions** | Export discussions with comments, categories, labels, and reactions | Planned |
+
+### GitHub Discussions Backup
+
+Currently, the following are backed up: Issues, Pull Requests, Releases, Wiki.
+
+**Planned:** Export GitHub Discussions via GraphQL API.
+
+```env
+# Future setting (not yet implemented)
+BACKUP_INCLUDE_DISCUSSIONS=true
+```
+
+This would include:
+- Discussion threads with all comments/replies
+- Categories and labels
+- Reactions (emoji)
+- Answered status
+
+> **Note:** GitHub Discussions require the GraphQL API (REST API has limited support), which will be implemented in a future version.
+
+---
+
 ## License
 
 MIT License - See [LICENSE](LICENSE)

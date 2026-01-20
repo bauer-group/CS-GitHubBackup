@@ -463,46 +463,43 @@ GITHUB_PAT=github_pat_...
 
 | Mode | Description | Use Case |
 |------|-------------|----------|
-| `daily` | Run at fixed time every day | Regular daily backups |
-| `weekly` | Run once per week | Less frequent backups |
+| `cron` | Run at fixed time (hour/minute/day) | Daily, weekly, or specific days |
 | `interval` | Run every N hours | Continuous protection |
 
 ### Examples
 
 **Daily at 2:00 AM (default):**
+
 ```env
-BACKUP_SCHEDULE_MODE=daily
+BACKUP_SCHEDULE_MODE=cron
 BACKUP_SCHEDULE_HOUR=2
 BACKUP_SCHEDULE_MINUTE=0
 BACKUP_SCHEDULE_DAY_OF_WEEK=*
 ```
 
 **Weekdays only at 3:30 AM:**
+
 ```env
-BACKUP_SCHEDULE_MODE=daily
+BACKUP_SCHEDULE_MODE=cron
 BACKUP_SCHEDULE_HOUR=3
 BACKUP_SCHEDULE_MINUTE=30
 BACKUP_SCHEDULE_DAY_OF_WEEK=0,1,2,3,4
 ```
 
 **Weekly on Sunday at midnight:**
+
 ```env
-BACKUP_SCHEDULE_MODE=weekly
+BACKUP_SCHEDULE_MODE=cron
 BACKUP_SCHEDULE_HOUR=0
 BACKUP_SCHEDULE_MINUTE=0
 BACKUP_SCHEDULE_DAY_OF_WEEK=6
 ```
 
 **Every 6 hours:**
+
 ```env
 BACKUP_SCHEDULE_MODE=interval
 BACKUP_SCHEDULE_INTERVAL_HOURS=6
-```
-
-**Every 12 hours:**
-```env
-BACKUP_SCHEDULE_MODE=interval
-BACKUP_SCHEDULE_INTERVAL_HOURS=12
 ```
 
 ### Day of Week Reference

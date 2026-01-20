@@ -64,9 +64,9 @@ class Settings(BaseSettings):
         default=True,
         description="Enable scheduled backups"
     )
-    backup_schedule_mode: Literal["daily", "weekly", "interval"] = Field(
-        default="daily",
-        description="Schedule mode: daily (once per day), weekly (once per week), interval (every n hours)"
+    backup_schedule_mode: Literal["cron", "interval"] = Field(
+        default="cron",
+        description="Schedule mode: cron (fixed time with day_of_week) or interval (every n hours)"
     )
     backup_schedule_hour: int = Field(
         default=2,
@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     )
     backup_schedule_day_of_week: str = Field(
         default="*",
-        description="Day of week (0=Mon, 6=Sun, * for all days in daily mode, e.g. '0' for Monday in weekly mode)"
+        description="Day of week for cron mode (0=Mon, 6=Sun, * for daily, 0,2,4 for Mon/Wed/Fri)"
     )
     backup_schedule_interval_hours: int = Field(
         default=24,

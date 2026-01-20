@@ -85,15 +85,7 @@ class BackupScheduler:
 
         if mode == "interval":
             return IntervalTrigger(hours=interval_hours)
-        elif mode == "weekly":
-            # For weekly mode, day_of_week should be a specific day
-            dow = day_of_week if day_of_week != "*" else "0"  # Default to Monday
-            return CronTrigger(
-                day_of_week=dow,
-                hour=hour,
-                minute=minute,
-            )
-        else:  # daily (default)
+        else:  # cron (default)
             return CronTrigger(
                 day_of_week=day_of_week,
                 hour=hour,
@@ -117,20 +109,17 @@ class BackupScheduler:
         if mode == "interval":
             if interval_hours == 1:
                 return "Every hour"
-            elif interval_hours == 24:
-                return f"Every day at {hour:02d}:{minute:02d}"
             else:
                 return f"Every {interval_hours} hours"
-        elif mode == "weekly":
-            dow = day_of_week if day_of_week != "*" else "0"
-            day_name = day_names[int(dow)]
-            return f"Weekly on {day_name} at {hour:02d}:{minute:02d}"
-        else:  # daily
+        else:  # cron
             if day_of_week == "*":
                 return f"Daily at {hour:02d}:{minute:02d}"
             else:
                 days = [day_names[int(d.strip())] for d in day_of_week.split(",")]
-                return f"On {', '.join(days)} at {hour:02d}:{minute:02d}"
+                if len(days) == 1:
+                    return f"Weekly on {days[0]} at {hour:02d}:{minute:02d}"
+                else:
+                    return f"On {', '.join(days)} at {hour:02d}:{minute:02d}"
 
     def start(self) -> None:
         """Start the scheduler.

@@ -233,7 +233,12 @@ class GitHubBackupClient:
         if not repo_info.has_wiki:
             return None
 
-        wiki_url = repo_info.repo.clone_url.replace(".git", ".wiki.git")
+        # Use removesuffix to only replace the trailing .git, not .git in repo names like .github
+        clone_url = repo_info.repo.clone_url
+        if clone_url.endswith(".git"):
+            wiki_url = clone_url[:-4] + ".wiki.git"
+        else:
+            wiki_url = clone_url + ".wiki.git"
 
         # Use embedded token for private repos (requires auth)
         if repo_info.private and self._authenticated:

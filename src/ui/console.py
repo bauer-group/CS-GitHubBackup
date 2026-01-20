@@ -140,6 +140,12 @@ def print_summary(stats: dict, duration_seconds: float) -> None:
     if stats.get("errors", 0) > 0:
         table.add_row("Errors", f"[red]{stats['errors']}[/]")
 
+    if stats.get("shutdown_skipped", 0) > 0:
+        table.add_row(
+            "Shutdown Skipped",
+            f"[yellow]{stats['shutdown_skipped']}[/] [dim](not started)[/]"
+        )
+
     if "deleted_backups" in stats:
         table.add_row("Old Backups Removed", str(stats["deleted_backups"]))
 

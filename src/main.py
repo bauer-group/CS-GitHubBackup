@@ -7,7 +7,9 @@ Automated backup of GitHub repositories to S3-compatible storage.
 
 import logging
 import shutil
+import signal
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +36,52 @@ from ui.console import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class ShutdownHandler:
+    """Handles graceful shutdown on SIGTERM/SIGINT.
+
+    Allows the current repository backup to complete before exiting.
+    """
+
+    def __init__(self):
+        self._shutdown_requested = threading.Event()
+        self._current_repo: str | None = None
+        self._lock = threading.Lock()
+
+    def request_shutdown(self, signum: int, frame) -> None:
+        """Signal handler for shutdown requests."""
+        signal_name = signal.Signals(signum).name
+        logger.info(f"Received {signal_name}, initiating graceful shutdown...")
+
+        with self._lock:
+            if self._current_repo:
+                console.print(
+                    f"\n[yellow]Shutdown requested - completing backup of "
+                    f"[cyan]{self._current_repo}[/] before exit...[/]"
+                )
+            else:
+                console.print("\n[yellow]Shutdown requested - stopping...[/]")
+
+        self._shutdown_requested.set()
+
+    def is_shutdown_requested(self) -> bool:
+        """Check if shutdown has been requested."""
+        return self._shutdown_requested.is_set()
+
+    def set_current_repo(self, repo_name: str | None) -> None:
+        """Set the currently processing repository name."""
+        with self._lock:
+            self._current_repo = repo_name
+
+    def get_current_repo(self) -> str | None:
+        """Get the currently processing repository name."""
+        with self._lock:
+            return self._current_repo
+
+
+# Global shutdown handler instance
+shutdown_handler = ShutdownHandler()
 
 
 def run_backup(settings: Settings) -> bool:
@@ -134,12 +182,28 @@ def run_backup(settings: Settings) -> bool:
         metadata_exporter = MetadataExporter(work_dir)
         wiki_backup = WikiBackup(git_backup)
 
+        # Track if we're stopping early due to shutdown
+        shutdown_early = False
+        repos_remaining = 0
+
         # Process repositories with progress bar
         with create_progress() as progress:
             task = progress.add_task("Backing up repositories", total=len(repos_to_backup))
 
-            for repo_info in repos_to_backup:
+            for idx, repo_info in enumerate(repos_to_backup):
+                # Check for shutdown request before starting new repo
+                if shutdown_handler.is_shutdown_requested():
+                    repos_remaining = len(repos_to_backup) - idx
+                    shutdown_early = True
+                    console.print(
+                        f"\n[yellow]Shutdown: Skipping {repos_remaining} remaining "
+                        f"repositories[/]"
+                    )
+                    break
+
                 repo_name = repo_info.name
+                shutdown_handler.set_current_repo(repo_name)
+
                 repo_stats = {
                     "git_size": None,
                     "lfs_size": None,
@@ -230,15 +294,20 @@ def run_backup(settings: Settings) -> bool:
                     error=repo_stats["error"],
                 )
 
+                # Clear current repo tracking
+                shutdown_handler.set_current_repo(None)
+
                 progress.advance(task)
 
         # Cleanup old backups (smart retention - preserves last backup per repo)
-        console.print("\n[dim]Checking retention policy...[/]")
-        deleted_count = s3_storage.cleanup_old_backups(
-            state_manager.get_backed_up_repos()
-        )
-        if deleted_count > 0:
-            stats["deleted_backups"] = deleted_count
+        # Skip if shutting down to exit faster
+        if not shutdown_early:
+            console.print("\n[dim]Checking retention policy...[/]")
+            deleted_count = s3_storage.cleanup_old_backups(
+                state_manager.get_backed_up_repos()
+            )
+            if deleted_count > 0:
+                stats["deleted_backups"] = deleted_count
 
         # Cleanup local work directory
         console.print("[dim]Cleaning up local files...[/]")
@@ -246,10 +315,14 @@ def run_backup(settings: Settings) -> bool:
 
         # Print summary
         duration = time.time() - start_time
+        if shutdown_early:
+            stats["shutdown_skipped"] = repos_remaining
         print_summary(stats, duration)
 
         # Print completion status
         success = stats["errors"] == 0
+        if shutdown_early:
+            console.print("\n[yellow]Backup stopped early due to shutdown request[/]")
         print_completion(success)
 
         # Send alerts
@@ -324,6 +397,10 @@ def main() -> int:
         from cli import app
         app()
         return 0
+
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, shutdown_handler.request_shutdown)
+    signal.signal(signal.SIGINT, shutdown_handler.request_shutdown)
 
     try:
         # Load settings

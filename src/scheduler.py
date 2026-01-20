@@ -163,10 +163,18 @@ class BackupScheduler:
         with Scheduler() as scheduler:
             self.scheduler = scheduler
 
+            # Import shutdown handler for coordination
+            from main import shutdown_handler
+
             # Setup signal handlers inside context
             def signal_handler(signum, frame):
-                logger.info("Received shutdown signal, stopping scheduler...")
-                console.print("\n[yellow]Shutting down scheduler...[/]")
+                signal_name = signal.Signals(signum).name
+                logger.info(f"Received {signal_name}, stopping scheduler...")
+
+                # Notify the shutdown handler (for backup in progress)
+                shutdown_handler.request_shutdown(signum, frame)
+
+                # Stop the scheduler (allows current job to complete)
                 scheduler.stop()
 
             signal.signal(signal.SIGINT, signal_handler)

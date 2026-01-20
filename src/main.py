@@ -143,6 +143,7 @@ def run_backup(settings: Settings) -> bool:
                 repo_stats = {
                     "git_size": None,
                     "lfs_size": None,
+                    "has_lfs": False,
                     "issues": None,
                     "prs": None,
                     "releases": None,
@@ -168,6 +169,7 @@ def run_backup(settings: Settings) -> bool:
 
                         # Upload LFS archive if present
                         if backup_result.lfs_path is not None:
+                            repo_stats["has_lfs"] = True
                             repo_stats["lfs_size"] = format_size(backup_result.lfs_size)
                             stats["total_size"] += backup_result.lfs_size
                             stats["lfs_repos"] = stats.get("lfs_repos", 0) + 1
@@ -219,6 +221,7 @@ def run_backup(settings: Settings) -> bool:
                 print_repo_status(
                     repo_name,
                     git_size=repo_stats["git_size"],
+                    has_lfs=repo_stats["has_lfs"],
                     lfs_size=repo_stats["lfs_size"],
                     issues=repo_stats["issues"],
                     prs=repo_stats["prs"],

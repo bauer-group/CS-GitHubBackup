@@ -64,6 +64,7 @@ def print_banner(backup_id: str) -> None:
 def print_repo_status(
     repo_name: str,
     git_size: Optional[str] = None,
+    has_lfs: bool = False,
     lfs_size: Optional[str] = None,
     issues: Optional[int] = None,
     prs: Optional[int] = None,
@@ -81,8 +82,10 @@ def print_repo_status(
     if git_size:
         parts.append(f"[cyan]Git: {git_size}[/]")
 
-    if lfs_size:
+    if has_lfs and lfs_size:
         parts.append(f"[bright_cyan]LFS: {lfs_size}[/]")
+    else:
+        parts.append("[dim]LFS: -[/]")
 
     if issues is not None:
         parts.append(f"[yellow]Issues: {issues}[/]")

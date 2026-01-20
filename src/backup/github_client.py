@@ -159,14 +159,27 @@ class GitHubBackupClient:
     def get_repositories(self) -> Generator[RepoInfo, None, None]:
         """Get all repositories that should be backed up.
 
+        Behavior depends on GITHUB_BACKUP_ALL_ACCESSIBLE setting:
+        - False (default): Only repos owned by GITHUB_OWNER
+        - True: All repos the authenticated user has access to (orgs, collaborations, etc.)
+
         Yields:
             RepoInfo objects matching the backup criteria.
         """
-        # For organizations, we need to specify type='all' to include private repos
-        # For users, get_repos() already returns all repos the authenticated user can access
         if isinstance(self.owner, Organization):
+            # For organizations, get all repos (public + private if authenticated)
             repos = self.owner.get_repos(type="all")
+        elif isinstance(self.owner, AuthenticatedUser):
+            if self.settings.github_backup_all_accessible:
+                # Get ALL repos the user has access to (owned, collaborator, org member)
+                repos = self.owner.get_repos()
+                logger.info("Fetching ALL accessible repos (owned + collaborations + org memberships)")
+            else:
+                # Get ONLY repos owned by this user
+                repos = self.owner.get_repos(affiliation="owner")
+                logger.info("Fetching only repos owned by authenticated user")
         else:
+            # NamedUser - returns public repos of that user
             repos = self.owner.get_repos()
 
         for repo in repos:

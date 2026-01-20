@@ -1004,6 +1004,7 @@ cat metadata/issues.json | jq '.[] | {number, title, state}'
 | `GITHUB_BACKUP_PRIVATE` | `true` | Include private repositories |
 | `GITHUB_BACKUP_FORKS` | `false` | Include forked repositories |
 | `GITHUB_BACKUP_ARCHIVED` | `true` | Include archived repositories |
+| `GITHUB_BACKUP_ALL_ACCESSIBLE` | `false` | Backup all repos the user has access to (not just owned) |
 | `BACKUP_RETENTION_COUNT` | `7` | Number of backups to keep |
 | `BACKUP_INCLUDE_METADATA` | `true` | Export issues, PRs, releases |
 | `BACKUP_INCLUDE_WIKI` | `true` | Backup wiki repositories |

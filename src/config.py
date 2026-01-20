@@ -40,6 +40,10 @@ class Settings(BaseSettings):
         default=True,
         description="Include archived repositories"
     )
+    github_backup_all_accessible: bool = Field(
+        default=False,
+        description="Backup ALL repos the user has access to (not just owned by GITHUB_OWNER)"
+    )
 
     # === Backup Configuration ===
     backup_retention_count: int = Field(

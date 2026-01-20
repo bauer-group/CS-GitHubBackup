@@ -872,7 +872,7 @@ The CLI provides management and restore capabilities.
 # List all backups
 docker compose run --rm github-backup cli list
 
-# Show backup details
+# Show backup details (displays Git, LFS, Wiki, Metadata status per repo)
 docker compose run --rm github-backup cli show 2024-01-15_02-00-00
 
 # Delete a backup
@@ -881,16 +881,18 @@ docker compose run --rm github-backup cli delete 2024-01-15_02-00-00
 # Download backup to local directory
 docker compose run --rm github-backup cli download 2024-01-15_02-00-00 /data/local
 
-# Restore to local directory
+# Restore to local directory (automatically restores LFS objects if present)
 docker compose run --rm github-backup cli restore local 2024-01-15_02-00-00 my-repo ./restored
 
-# Restore to GitHub (same or different repo)
+# Restore to GitHub (automatically restores and pushes LFS objects if present)
 docker compose run --rm github-backup cli restore github 2024-01-15_02-00-00 my-repo
 docker compose run --rm github-backup cli restore github 2024-01-15_02-00-00 my-repo --target other-org/new-repo
 
-# Restore to any Git remote
+# Restore to any Git remote (automatically restores and pushes LFS objects if present)
 docker compose run --rm github-backup cli restore git 2024-01-15_02-00-00 my-repo https://gitlab.com/user/repo.git
 ```
+
+> **Note:** All restore commands automatically detect and restore Git LFS objects if present in the backup. No additional flags needed.
 
 ---
 
@@ -907,7 +909,7 @@ A Git Bundle is restored using native Git commands. The bundle contains everythi
 Extract a backup to a local working directory:
 
 ```bash
-# Via CLI
+# Via CLI (automatically handles LFS objects if present)
 docker compose run --rm github-backup cli restore local 2024-01-15_02-00-00 my-repo ./restored
 
 # Manual: Download bundle and clone from it
@@ -921,7 +923,7 @@ git remote set-url origin https://github.com/org/my-repo.git
 Push the backup directly to GitHub (same or different repository):
 
 ```bash
-# Restore to original repository
+# Restore to original repository (automatically handles LFS objects if present)
 docker compose run --rm github-backup cli restore github 2024-01-15_02-00-00 my-repo
 
 # Restore to a different repository
@@ -933,6 +935,7 @@ docker compose run --rm github-backup cli restore github 2024-01-15_02-00-00 my-
 Push to GitLab, Bitbucket, or any Git server:
 
 ```bash
+# Automatically handles LFS objects if present
 docker compose run --rm github-backup cli restore git 2024-01-15_02-00-00 my-repo https://gitlab.com/user/repo.git
 ```
 
@@ -951,13 +954,22 @@ git bundle verify my-repo.bundle
 git clone my-repo.bundle my-repo
 cd my-repo
 
-# 4. View all branches from backup
+# 4. (Optional) If repo uses LFS, download and restore LFS objects
+aws s3 cp s3://bucket/github-backup/2024-01-15_02-00-00/my-repo/my-repo.lfs.tar.gz .
+mkdir -p .git/lfs/objects
+tar -xzf ../my-repo.lfs.tar.gz -C .git/lfs/objects
+git lfs checkout
+
+# 5. View all branches from backup
 git branch -a
 
-# 5. Set new remote and push
+# 6. Set new remote and push
 git remote set-url origin https://github.com/org/my-repo.git
 git push --all origin
 git push --tags origin
+
+# 7. (Optional) Push LFS objects to remote
+git lfs push --all origin
 ```
 
 ### Restore Metadata

@@ -6,6 +6,7 @@ Command-line interface for backup management and restore operations.
 
 import shutil
 import subprocess
+import tarfile
 from pathlib import Path
 from typing import Optional
 
@@ -79,14 +80,16 @@ def show_backup(backup_id: str = typer.Argument(..., help="Backup ID to show det
     table = Table(title=f"Backup: {backup_id}", show_header=True, header_style="bold cyan")
     table.add_column("Repository", style="cyan")
     table.add_column("Git Bundle", justify="center")
+    table.add_column("LFS", justify="center")
     table.add_column("Wiki", justify="center")
     table.add_column("Metadata", justify="center")
 
     for repo in repos:
         has_git = "✓" if repo.get("has_bundle") else "-"
+        has_lfs = "✓" if repo.get("has_lfs") else "-"
         has_wiki = "✓" if repo.get("has_wiki") else "-"
         has_meta = "✓" if repo.get("has_metadata") else "-"
-        table.add_row(repo["name"], has_git, has_wiki, has_meta)
+        table.add_row(repo["name"], has_git, has_lfs, has_wiki, has_meta)
 
     console.print(table)
 
@@ -137,7 +140,7 @@ def restore_local(
     output_path: Path = typer.Argument(..., help="Output directory path"),
     include_wiki: bool = typer.Option(False, "--wiki", "-w", help="Also restore wiki"),
 ):
-    """Restore a repository to a local directory."""
+    """Restore a repository to a local directory (includes LFS objects if present)."""
     settings = Settings()
     s3 = S3Storage(settings)
 
@@ -157,10 +160,20 @@ def restore_local(
     console.print("Restoring from bundle...")
     _clone_from_bundle(bundle_path, output_path)
 
-    # Cleanup
+    # Cleanup bundle
     bundle_path.unlink()
 
     console.print(f"[green]✓ Repository restored to {output_path}[/]")
+
+    # Check for LFS archive and restore if present
+    with console.status("Checking for LFS objects..."):
+        lfs_archive = _download_lfs_archive(s3, backup_id, repo_name, settings)
+
+    if lfs_archive:
+        console.print("Restoring LFS objects...")
+        if _restore_lfs_objects(lfs_archive, output_path):
+            console.print("[green]✓ LFS objects restored[/]")
+        lfs_archive.unlink()
 
     # Restore wiki if requested
     if include_wiki:
@@ -185,7 +198,7 @@ def restore_github(
     include_wiki: bool = typer.Option(False, "--wiki", "-w", help="Also restore wiki"),
     force: bool = typer.Option(False, "--force", "-f", help="Force push (overwrites remote)"),
 ):
-    """Restore a repository to GitHub."""
+    """Restore a repository to GitHub (includes LFS objects if present)."""
     settings = Settings()
     s3 = S3Storage(settings)
 
@@ -209,6 +222,10 @@ def restore_github(
         console.print(f"[red]Bundle for '{repo_name}' not found.[/]")
         raise typer.Exit(1)
 
+    # Check for LFS archive
+    with console.status("Checking for LFS objects..."):
+        lfs_archive = _download_lfs_archive(s3, backup_id, repo_name, settings)
+
     # Create temp directory for clone
     temp_dir = Path(settings.data_dir) / "restore_temp" / repo_name
     temp_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -216,6 +233,11 @@ def restore_github(
     try:
         # Clone from bundle
         _clone_from_bundle(bundle_path, temp_dir)
+
+        # Restore LFS objects if present (before pushing)
+        if lfs_archive:
+            console.print("Restoring LFS objects...")
+            _restore_lfs_objects(lfs_archive, temp_dir)
 
         # Set remote
         remote_url = f"https://{settings.github_pat}@github.com/{target_repo}.git"
@@ -234,9 +256,17 @@ def restore_github(
 
         console.print(f"[green]✓ Repository restored to {target_repo}[/]")
 
+        # Push LFS objects if present
+        if lfs_archive:
+            console.print("Pushing LFS objects...")
+            if _push_lfs_objects(temp_dir):
+                console.print("[green]✓ LFS objects pushed[/]")
+
     finally:
         # Cleanup
         bundle_path.unlink(missing_ok=True)
+        if lfs_archive:
+            lfs_archive.unlink(missing_ok=True)
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
 
@@ -252,7 +282,7 @@ def restore_git(
     remote_url: str = typer.Argument(..., help="Target Git remote URL"),
     force: bool = typer.Option(False, "--force", "-f", help="Force push (overwrites remote)"),
 ):
-    """Restore a repository to any Git remote."""
+    """Restore a repository to any Git remote (includes LFS objects if present)."""
     settings = Settings()
     s3 = S3Storage(settings)
 
@@ -273,11 +303,20 @@ def restore_git(
         console.print(f"[red]Bundle for '{repo_name}' not found.[/]")
         raise typer.Exit(1)
 
+    # Check for LFS archive
+    with console.status("Checking for LFS objects..."):
+        lfs_archive = _download_lfs_archive(s3, backup_id, repo_name, settings)
+
     temp_dir = Path(settings.data_dir) / "restore_temp" / repo_name
     temp_dir.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         _clone_from_bundle(bundle_path, temp_dir)
+
+        # Restore LFS objects if present (before pushing)
+        if lfs_archive:
+            console.print("Restoring LFS objects...")
+            _restore_lfs_objects(lfs_archive, temp_dir)
 
         subprocess.run(
             ["git", "remote", "set-url", "origin", remote_url],
@@ -293,8 +332,16 @@ def restore_git(
 
         console.print(f"[green]✓ Repository pushed to {remote_url}[/]")
 
+        # Push LFS objects if present
+        if lfs_archive:
+            console.print("Pushing LFS objects...")
+            if _push_lfs_objects(temp_dir):
+                console.print("[green]✓ LFS objects pushed[/]")
+
     finally:
         bundle_path.unlink(missing_ok=True)
+        if lfs_archive:
+            lfs_archive.unlink(missing_ok=True)
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
 
@@ -374,6 +421,7 @@ def _list_repos_in_backup(s3: S3Storage, backup_id: str) -> list[dict]:
         repos.append({
             "name": repo_name,
             "has_bundle": any(f.endswith(".bundle") and "wiki" not in f for f in files),
+            "has_lfs": any(f.endswith(".lfs.tar.gz") for f in files),
             "has_wiki": any("wiki.bundle" in f for f in files),
             "has_metadata": any("metadata/" in f for f in files),
         })
@@ -405,6 +453,85 @@ def _download_wiki_bundle(s3: S3Storage, backup_id: str, repo_name: str, setting
         return local_path
     except Exception:
         return None
+
+
+def _download_lfs_archive(s3: S3Storage, backup_id: str, repo_name: str, settings: Settings) -> Optional[Path]:
+    """Download a LFS archive from S3."""
+    key = f"{s3.prefix}/{backup_id}/{repo_name}/{repo_name}.lfs.tar.gz"
+    local_path = Path(settings.data_dir) / "temp" / f"{repo_name}.lfs.tar.gz"
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        s3.s3.download_file(s3.bucket, key, str(local_path))
+        return local_path
+    except Exception:
+        return None
+
+
+def _restore_lfs_objects(lfs_archive: Path, repo_path: Path) -> bool:
+    """Extract LFS objects and run git lfs checkout.
+
+    Args:
+        lfs_archive: Path to the .lfs.tar.gz archive.
+        repo_path: Path to the cloned repository.
+
+    Returns:
+        True if LFS restore was successful.
+    """
+    try:
+        # Create .git/lfs/objects directory
+        lfs_objects_dir = repo_path / ".git" / "lfs" / "objects"
+        lfs_objects_dir.mkdir(parents=True, exist_ok=True)
+
+        # Extract LFS archive to .git/lfs/objects
+        with tarfile.open(lfs_archive, "r:gz") as tar:
+            tar.extractall(path=lfs_objects_dir)
+
+        # Run git lfs checkout to replace pointers with actual files
+        result = subprocess.run(
+            ["git", "lfs", "checkout"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            console.print(f"[yellow]Warning: git lfs checkout returned error: {result.stderr}[/]")
+            return False
+
+        return True
+
+    except Exception as e:
+        console.print(f"[yellow]Warning: Failed to restore LFS objects: {e}[/]")
+        return False
+
+
+def _push_lfs_objects(repo_path: Path) -> bool:
+    """Push LFS objects to remote.
+
+    Args:
+        repo_path: Path to the repository.
+
+    Returns:
+        True if LFS push was successful.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "lfs", "push", "--all", "origin"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            console.print(f"[yellow]Warning: git lfs push returned error: {result.stderr}[/]")
+            return False
+
+        return True
+
+    except Exception as e:
+        console.print(f"[yellow]Warning: Failed to push LFS objects: {e}[/]")
+        return False
 
 
 def _clone_from_bundle(bundle_path: Path, output_path: Path) -> None:

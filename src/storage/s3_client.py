@@ -486,6 +486,20 @@ class S3Storage:
             logger.error(f"Failed to download state from S3: {e}")
             return False
 
+    def state_exists(self) -> bool:
+        """Check if state file exists in S3.
+
+        Returns:
+            True if state file exists, False otherwise.
+        """
+        key = self.get_state_key()
+
+        try:
+            self.s3.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except ClientError:
+            return False
+
     def get_state_last_modified(self) -> Optional[datetime]:
         """Get last modified time of state file in S3.
 

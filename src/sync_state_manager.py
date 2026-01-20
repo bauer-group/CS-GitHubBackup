@@ -87,6 +87,9 @@ class SyncStateManager:
         Downloads state from S3 bucket when:
         - Local state file doesn't exist (fresh container/volume)
         - S3 state is newer than local state
+
+        Deletes local state when:
+        - Local state exists but S3 has no state (S3 was reset/changed)
         """
         if self.s3_storage is None:
             return
@@ -98,6 +101,17 @@ class SyncStateManager:
                 logger.info("State restored from S3")
             else:
                 logger.debug("No state in S3 (first run)")
+        else:
+            # Local state exists - verify S3 also has state
+            # If S3 has no state, it means S3 was reset/changed and local state is invalid
+            if not self.s3_storage.state_exists():
+                logger.warning(
+                    "Local state exists but S3 has no state - "
+                    "S3 storage was likely reset. Discarding local state."
+                )
+                self.state_file.unlink()
+                self._state = None
+                logger.info("Local state discarded, starting fresh")
 
     def _sync_state_to_s3(self) -> None:
         """Upload state to S3 for persistence."""

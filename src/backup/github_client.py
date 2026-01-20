@@ -182,9 +182,28 @@ class GitHubBackupClient:
             # NamedUser - returns public repos of that user
             repos = self.owner.get_repos()
 
+        total_count = 0
+        skipped_forks = 0
+        skipped_private = 0
+        skipped_archived = 0
+
         for repo in repos:
+            total_count += 1
             if self._should_backup(repo):
                 yield RepoInfo.from_repo(repo)
+            else:
+                # Count why repos were skipped
+                if repo.fork and not self.settings.github_backup_forks:
+                    skipped_forks += 1
+                elif repo.private and not self.settings.github_backup_private:
+                    skipped_private += 1
+                elif repo.archived and not self.settings.github_backup_archived:
+                    skipped_archived += 1
+
+        logger.info(
+            f"Repository scan complete: {total_count} total, "
+            f"skipped {skipped_forks} forks, {skipped_private} private, {skipped_archived} archived"
+        )
 
     def _should_backup(self, repo: Repository) -> bool:
         """Determine if a repository should be included in the backup.
@@ -197,17 +216,17 @@ class GitHubBackupClient:
         """
         # Skip private repos if not configured
         if repo.private and not self.settings.github_backup_private:
-            logger.debug(f"Skipping private repo: {repo.full_name}")
+            logger.info(f"Skipping private repo: {repo.full_name}")
             return False
 
         # Skip forks if not configured
         if repo.fork and not self.settings.github_backup_forks:
-            logger.debug(f"Skipping fork: {repo.full_name}")
+            logger.info(f"Skipping fork: {repo.full_name}")
             return False
 
         # Skip archived if not configured
         if repo.archived and not self.settings.github_backup_archived:
-            logger.debug(f"Skipping archived repo: {repo.full_name}")
+            logger.info(f"Skipping archived repo: {repo.full_name}")
             return False
 
         return True
@@ -215,19 +234,23 @@ class GitHubBackupClient:
     def get_clone_url(self, repo_info: RepoInfo) -> str:
         """Get the clone URL for a repository.
 
-        For private repos with authentication, embeds the PAT in the URL.
-        For public repos, returns the plain URL.
+        For authenticated mode, embeds the PAT in the URL for all repos.
+        This is necessary because:
+        - Private repos require authentication
+        - Internal org repos (not public, not private) require authentication
+        - Using token for public repos doesn't hurt and increases rate limit
 
         Args:
             repo_info: Repository information.
 
         Returns:
-            Clone URL (with embedded PAT for authenticated private repos).
+            Clone URL (with embedded PAT when authenticated).
         """
         clone_url = repo_info.repo.clone_url
 
-        # Use HTTPS URL with embedded token for private repos (requires auth)
-        if repo_info.private and self._authenticated:
+        # Always embed token when authenticated - needed for private repos,
+        # internal org repos, and doesn't hurt for public repos
+        if self._authenticated:
             return clone_url.replace(
                 "https://",
                 f"https://{self.settings.github_pat}@"
@@ -253,8 +276,9 @@ class GitHubBackupClient:
         else:
             wiki_url = clone_url + ".wiki.git"
 
-        # Use embedded token for private repos (requires auth)
-        if repo_info.private and self._authenticated:
+        # Always embed token when authenticated - needed for private repos,
+        # internal org repos, and doesn't hurt for public repos
+        if self._authenticated:
             wiki_url = wiki_url.replace(
                 "https://",
                 f"https://{self.settings.github_pat}@"

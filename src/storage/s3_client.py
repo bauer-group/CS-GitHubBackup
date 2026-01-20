@@ -131,7 +131,11 @@ class S3Storage:
         self.settings = settings
         self.bucket = settings.s3_bucket
         self.retention = settings.backup_retention_count
-        self.prefix = "github-backup"
+        self.owner = settings.github_owner
+
+        # Prefix structure: github-backup/{owner}/{backup_id}/{repo_name}/
+        # This allows multiple orgs/users to share the same bucket
+        self.prefix = f"github-backup/{self.owner}"
 
         # Configure boto3 for S3-compatible endpoints
         boto_config = BotoConfig(
@@ -223,10 +227,10 @@ class S3Storage:
             prefixes = []
             for prefix_obj in response.get("CommonPrefixes", []):
                 prefix = prefix_obj.get("Prefix", "")
-                # Extract backup ID from "github-backup/YYYY-MM-DD_HH-MM-SS/"
+                # Extract backup ID from "github-backup/{owner}/YYYY-MM-DD_HH-MM-SS/"
                 parts = prefix.strip("/").split("/")
-                if len(parts) >= 2:
-                    prefixes.append(parts[1])
+                if len(parts) >= 3:
+                    prefixes.append(parts[2])
 
             # Sort by date (newest first)
             prefixes.sort(reverse=True)

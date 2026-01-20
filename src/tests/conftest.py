@@ -34,7 +34,11 @@ def temp_dir() -> Generator[Path, None, None]:
 
 @pytest.fixture
 def test_settings(temp_dir: Path) -> Settings:
-    """Create test settings with mocked values."""
+    """Create test settings with mocked values.
+
+    Note: s3_endpoint_url is None so moto can intercept boto3 calls.
+    Moto only intercepts calls to standard AWS endpoints, not custom endpoints.
+    """
     return Settings(
         # GitHub
         github_owner="test-org",
@@ -49,8 +53,8 @@ def test_settings(temp_dir: Path) -> Settings:
         backup_incremental=True,
         # Scheduler (disabled for tests)
         backup_schedule_enabled=False,
-        # S3
-        s3_endpoint_url="http://localhost:5000",
+        # S3 - endpoint_url=None allows moto to intercept
+        s3_endpoint_url=None,
         s3_bucket="test-bucket",
         s3_access_key="testing",
         s3_secret_key="testing",
@@ -70,8 +74,8 @@ def alert_settings(temp_dir: Path) -> Settings:
         # GitHub
         github_owner="test-org",
         github_pat="ghp_test_token_12345",
-        # S3
-        s3_endpoint_url="http://localhost:5000",
+        # S3 - endpoint_url=None allows moto to intercept
+        s3_endpoint_url=None,
         s3_bucket="test-bucket",
         s3_access_key="testing",
         s3_secret_key="testing",
@@ -114,8 +118,11 @@ def mock_s3(aws_credentials):
 
 @pytest.fixture
 def s3_with_backups(mock_s3):
-    """S3 with pre-existing backup data."""
-    # Create some backup folders
+    """S3 with pre-existing backup data.
+
+    Uses owner prefix structure: github-backup/{owner}/{backup_id}/{repo}/
+    """
+    # Create some backup folders (with owner prefix for multi-tenant support)
     backups = [
         "2024-01-01_02-00-00",
         "2024-01-02_02-00-00",
@@ -125,15 +132,15 @@ def s3_with_backups(mock_s3):
     ]
 
     for backup_id in backups:
-        # Create a test file in each backup
+        # Create a test file in each backup (test-org is the owner from test_settings)
         mock_s3.put_object(
             Bucket="test-bucket",
-            Key=f"github-backup/{backup_id}/test-repo/test-repo.bundle",
+            Key=f"github-backup/test-org/{backup_id}/test-repo/test-repo.bundle",
             Body=b"fake bundle content",
         )
         mock_s3.put_object(
             Bucket="test-bucket",
-            Key=f"github-backup/{backup_id}/test-repo/metadata/issues.json",
+            Key=f"github-backup/test-org/{backup_id}/test-repo/metadata/issues.json",
             Body=json.dumps([{"id": 1, "title": "Test Issue"}]).encode(),
         )
 

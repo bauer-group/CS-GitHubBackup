@@ -106,8 +106,9 @@ class Settings(BaseSettings):
             raise ValueError("day_of_week must be '*' or comma-separated days 0-6 (0=Mon, 6=Sun)")
 
     # === S3/MinIO Configuration ===
-    s3_endpoint_url: str = Field(
-        description="S3-compatible endpoint URL"
+    s3_endpoint_url: Optional[str] = Field(
+        default=None,
+        description="S3-compatible endpoint URL (None for AWS S3)"
     )
     s3_bucket: str = Field(
         description="Bucket name for backups"

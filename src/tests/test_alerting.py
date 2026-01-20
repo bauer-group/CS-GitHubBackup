@@ -8,15 +8,27 @@ import hashlib
 import hmac
 import json
 from datetime import datetime
+from io import BytesIO
+from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
 import pytest
-import responses
 
 from config import Settings
 from alerting.base import AlertData, AlertLevel
 from alerting.manager import AlertManager
 from alerting.webhook_alerter import WebhookAlerter
 from alerting.teams_alerter import TeamsAlerter
+
+
+def create_mock_response(status=200, body=b"ok"):
+    """Create a mock urllib response object."""
+    mock_response = MagicMock()
+    mock_response.status = status
+    mock_response.read.return_value = body
+    mock_response.__enter__ = lambda s: s
+    mock_response.__exit__ = MagicMock(return_value=False)
+    return mock_response
 
 
 class TestAlertLevel:
@@ -188,15 +200,10 @@ class TestAlertManager:
 class TestWebhookAlerter:
     """Tests for WebhookAlerter."""
 
-    @responses.activate
-    def test_send_alert(self, alert_settings: Settings):
+    @patch("alerting.webhook_alerter.urlopen")
+    def test_send_alert(self, mock_urlopen, alert_settings: Settings):
         """Test sending an alert via webhook."""
-        responses.add(
-            responses.POST,
-            "https://webhook.example.com/test",
-            json={"status": "ok"},
-            status=200,
-        )
+        mock_urlopen.return_value = create_mock_response(200, b'{"status":"ok"}')
 
         alerter = WebhookAlerter(alert_settings)
         alert = AlertData(
@@ -211,24 +218,21 @@ class TestWebhookAlerter:
         result = alerter.send(alert)
 
         assert result is True
-        assert len(responses.calls) == 1
+        assert mock_urlopen.called
 
         # Verify payload
-        request_body = json.loads(responses.calls[0].request.body)
+        call_args = mock_urlopen.call_args
+        request = call_args[0][0]
+        request_body = json.loads(request.data.decode("utf-8"))
         assert request_body["event"] == "backup_alert"
         assert request_body["level"] == "success"
         assert request_body["title"] == "Backup Completed"
         assert request_body["stats"]["repos_backed_up"] == 10
 
-    @responses.activate
-    def test_send_alert_with_signature(self, alert_settings: Settings):
+    @patch("alerting.webhook_alerter.urlopen")
+    def test_send_alert_with_signature(self, mock_urlopen, alert_settings: Settings):
         """Test that webhook signature is computed correctly."""
-        responses.add(
-            responses.POST,
-            "https://webhook.example.com/test",
-            json={"status": "ok"},
-            status=200,
-        )
+        mock_urlopen.return_value = create_mock_response(200, b'{"status":"ok"}')
 
         alerter = WebhookAlerter(alert_settings)
         alert = AlertData(
@@ -240,27 +244,29 @@ class TestWebhookAlerter:
 
         alerter.send(alert)
 
-        # Verify signature headers
-        request = responses.calls[0].request
-        assert "X-Signature" in request.headers
-        assert "X-Signature-256" in request.headers
+        # Verify signature headers (urllib normalizes header names to title case)
+        call_args = mock_urlopen.call_args
+        request = call_args[0][0]
+        assert "X-signature" in request.headers
+        assert "X-signature-256" in request.headers
 
         # Verify signature is correct
         expected_sig = hmac.new(
             b"test-secret",
-            request.body,
+            request.data,
             hashlib.sha256,
         ).hexdigest()
-        assert request.headers["X-Signature"] == expected_sig
+        assert request.headers["X-signature"] == expected_sig
 
-    @responses.activate
-    def test_send_alert_handles_error(self, alert_settings: Settings):
+    @patch("alerting.webhook_alerter.urlopen")
+    def test_send_alert_handles_error(self, mock_urlopen, alert_settings: Settings):
         """Test handling of webhook errors."""
-        responses.add(
-            responses.POST,
+        mock_urlopen.side_effect = HTTPError(
             "https://webhook.example.com/test",
-            json={"error": "Server Error"},
-            status=500,
+            500,
+            "Server Error",
+            {},
+            BytesIO(b'{"error": "Server Error"}'),
         )
 
         alerter = WebhookAlerter(alert_settings)
@@ -278,15 +284,10 @@ class TestWebhookAlerter:
 class TestTeamsAlerter:
     """Tests for TeamsAlerter."""
 
-    @responses.activate
-    def test_send_alert(self, alert_settings: Settings):
+    @patch("alerting.teams_alerter.urlopen")
+    def test_send_alert(self, mock_urlopen, alert_settings: Settings):
         """Test sending an alert to Teams."""
-        responses.add(
-            responses.POST,
-            "https://teams.webhook.office.com/test",
-            body="1",
-            status=200,
-        )
+        mock_urlopen.return_value = create_mock_response(200, b"1")
 
         alerter = TeamsAlerter(alert_settings)
         alert = AlertData(
@@ -303,23 +304,20 @@ class TestTeamsAlerter:
         result = alerter.send(alert)
 
         assert result is True
-        assert len(responses.calls) == 1
+        assert mock_urlopen.called
 
         # Verify payload is Adaptive Card format
-        request_body = json.loads(responses.calls[0].request.body)
+        call_args = mock_urlopen.call_args
+        request = call_args[0][0]
+        request_body = json.loads(request.data.decode("utf-8"))
         assert request_body["type"] == "message"
         assert len(request_body["attachments"]) == 1
         assert request_body["attachments"][0]["contentType"] == "application/vnd.microsoft.card.adaptive"
 
-    @responses.activate
-    def test_send_error_alert_with_errors(self, alert_settings: Settings):
+    @patch("alerting.teams_alerter.urlopen")
+    def test_send_error_alert_with_errors(self, mock_urlopen, alert_settings: Settings):
         """Test error alert includes error list."""
-        responses.add(
-            responses.POST,
-            "https://teams.webhook.office.com/test",
-            body="1",
-            status=200,
-        )
+        mock_urlopen.return_value = create_mock_response(200, b"1")
 
         alerter = TeamsAlerter(alert_settings)
         alert = AlertData(
@@ -335,7 +333,9 @@ class TestTeamsAlerter:
         assert result is True
 
         # Verify errors are included in card
-        request_body = json.loads(responses.calls[0].request.body)
+        call_args = mock_urlopen.call_args
+        request = call_args[0][0]
+        request_body = json.loads(request.data.decode("utf-8"))
         card_body = request_body["attachments"][0]["content"]["body"]
 
         # Find the container with errors
@@ -347,29 +347,25 @@ class TestTeamsAlerter:
 
         assert error_container is not None
 
-    @responses.activate
-    def test_test_connection(self, alert_settings: Settings):
+    @patch("alerting.teams_alerter.urlopen")
+    def test_test_connection(self, mock_urlopen, alert_settings: Settings):
         """Test Teams connection test."""
-        responses.add(
-            responses.POST,
-            "https://teams.webhook.office.com/test",
-            body="1",
-            status=200,
-        )
+        mock_urlopen.return_value = create_mock_response(200, b"1")
 
         alerter = TeamsAlerter(alert_settings)
         result = alerter.test_connection()
 
         assert result is True
 
-    @responses.activate
-    def test_handles_teams_error(self, alert_settings: Settings):
+    @patch("alerting.teams_alerter.urlopen")
+    def test_handles_teams_error(self, mock_urlopen, alert_settings: Settings):
         """Test handling of Teams API errors."""
-        responses.add(
-            responses.POST,
+        mock_urlopen.side_effect = HTTPError(
             "https://teams.webhook.office.com/test",
-            json={"error": "Bad Request"},
-            status=400,
+            400,
+            "Bad Request",
+            {},
+            BytesIO(b'{"error": "Bad Request"}'),
         )
 
         alerter = TeamsAlerter(alert_settings)

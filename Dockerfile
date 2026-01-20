@@ -88,6 +88,9 @@ WORKDIR /app
 # Application code (exclude tests in production)
 COPY --chown=backup:backup src/*.py ./
 COPY --chown=backup:backup src/alerting/ ./alerting/
+COPY --chown=backup:backup src/backup/ ./backup/
+COPY --chown=backup:backup src/storage/ ./storage/
+COPY --chown=backup:backup src/ui/ ./ui/
 
 # Data directory
 RUN mkdir -p /data && chown backup:backup /data

@@ -94,7 +94,12 @@ class GitHubBackupClient:
         Yields:
             RepoInfo objects matching the backup criteria.
         """
-        repos = self.owner.get_repos()
+        # For organizations, we need to specify type='all' to include private repos
+        # For users, get_repos() already returns all repos the authenticated user can access
+        if isinstance(self.owner, Organization):
+            repos = self.owner.get_repos(type="all")
+        else:
+            repos = self.owner.get_repos()
 
         for repo in repos:
             if self._should_backup(repo):

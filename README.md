@@ -1048,11 +1048,11 @@ This structure allows logical browsing: **owner → repository → backup histor
 
 **S3 Prefix Configuration:**
 
-| `S3_PREFIX`        | Resulting Path                              |
-|--------------------|---------------------------------------------|
-| (empty)            | `s3://bucket/{owner}/...`                   |
-| `github-backup`    | `s3://bucket/github-backup/{owner}/...`     |
-| `backups/github`   | `s3://bucket/backups/github/{owner}/...`    |
+| `S3_PREFIX`        | Resulting Path                                    |
+|--------------------|---------------------------------------------------|
+| (empty)            | `s3://bucket/{owner}/{repo}/{backup_id}/...`      |
+| `github-backup`    | `s3://bucket/github-backup/{owner}/{repo}/...`    |
+| `backups/github`   | `s3://bucket/backups/github/{owner}/{repo}/...`   |
 
 ---
 

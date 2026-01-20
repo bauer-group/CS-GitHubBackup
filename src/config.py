@@ -126,7 +126,7 @@ class Settings(BaseSettings):
     )
     s3_prefix: str = Field(
         default="",
-        description="Optional prefix/folder in S3 bucket (empty = store directly under {owner}/)"
+        description="Optional prefix/folder in S3 bucket (empty = store directly under {owner}/{repo}/)"
     )
     s3_multipart_threshold: int = Field(
         default=100 * 1024 * 1024,

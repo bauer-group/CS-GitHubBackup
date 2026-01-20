@@ -169,6 +169,7 @@ class GitHubBackupClient:
         if isinstance(self.owner, Organization):
             # For organizations, get all repos (public + private if authenticated)
             repos = self.owner.get_repos(type="all")
+            logger.info("Fetching repos from organization (type=all)")
         elif isinstance(self.owner, AuthenticatedUser):
             if self.settings.github_backup_all_accessible:
                 # Get ALL repos the user has access to (owned, collaborator, org member)
@@ -181,15 +182,33 @@ class GitHubBackupClient:
         else:
             # NamedUser - returns public repos of that user
             repos = self.owner.get_repos()
+            logger.info("Fetching public repos from user (NamedUser)")
+
+        # Log expected count from API (PyGithub handles pagination automatically)
+        try:
+            expected_count = repos.totalCount
+            logger.info(f"GitHub API reports {expected_count} repositories")
+        except Exception:
+            logger.debug("Could not get total count from API")
 
         total_count = 0
+        yielded_count = 0
         skipped_forks = 0
         skipped_private = 0
         skipped_archived = 0
+        skipped_other = 0
 
+        # PyGithub PaginatedList handles pagination automatically (30-100 repos per page)
+        # We iterate through all pages transparently
         for repo in repos:
             total_count += 1
+
+            # Progress logging every 100 repos for large orgs
+            if total_count % 100 == 0:
+                logger.info(f"Scanning repositories... {total_count} processed")
+
             if self._should_backup(repo):
+                yielded_count += 1
                 yield RepoInfo.from_repo(repo)
             else:
                 # Count why repos were skipped
@@ -199,10 +218,16 @@ class GitHubBackupClient:
                     skipped_private += 1
                 elif repo.archived and not self.settings.github_backup_archived:
                     skipped_archived += 1
+                else:
+                    # This shouldn't happen - log it
+                    skipped_other += 1
+                    logger.warning(f"Repo skipped for unknown reason: {repo.full_name} "
+                                   f"(fork={repo.fork}, private={repo.private}, archived={repo.archived})")
 
         logger.info(
-            f"Repository scan complete: {total_count} total, "
-            f"skipped {skipped_forks} forks, {skipped_private} private, {skipped_archived} archived"
+            f"Repository scan complete: {total_count} found from API, {yielded_count} to backup, "
+            f"skipped: {skipped_forks} forks, {skipped_private} private, {skipped_archived} archived"
+            + (f", {skipped_other} other" if skipped_other else "")
         )
 
     def _should_backup(self, repo: Repository) -> bool:

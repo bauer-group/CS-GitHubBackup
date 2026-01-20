@@ -650,7 +650,7 @@ WEBHOOK_SECRET=your-secret-key
 
 ```json
 {
-  "event": "backup_alert",
+  "event": "backup_status",
   "service": "github-backup",
   "timestamp": "2024-01-15T02:30:00.000000",
   "level": "success",

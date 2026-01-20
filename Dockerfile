@@ -59,11 +59,24 @@ RUN pytest tests/ -v --tb=short \
 # ───────────────────────────────────────────────────────────────────────────────
 FROM python:3.13-alpine AS prod
 
-# OCI Image Metadata
+# =============================================================================
+# Custom Labels
+# =============================================================================
+
+# Metadata
+LABEL vendor="BAUER GROUP"
+LABEL maintainer="Karl Bauer <karl.bauer@bauer-group.com>"
+
+# Opencontainers Metadata
 LABEL org.opencontainers.image.title="GitHub Backup"
-LABEL org.opencontainers.image.description="Automated GitHub repository backup to S3-compatible storage"
+LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.vendor="BAUER GROUP"
-LABEL org.opencontainers.image.source="https://github.com/bauer-group/github-backup"
+LABEL org.opencontainers.image.authors="Karl Bauer <karl.bauer@bauer-group.com>"
+LABEL org.opencontainers.image.source="https://github.com/bauer-group/CS-GitHubBackup"
+LABEL org.opencontainers.image.url="https://github.com/bauer-group/CS-GitHubBackup"
+LABEL org.opencontainers.image.documentation="https://github.com/bauer-group/CS-GitHubBackup#readme"
+LABEL org.opencontainers.image.description="Automated GitHub repository backup to S3-compatible storage with scheduling, incremental backups, and alerting"
+LABEL org.opencontainers.image.version="0.0.0"
 
 # Runtime dependencies
 RUN apk add --no-cache \

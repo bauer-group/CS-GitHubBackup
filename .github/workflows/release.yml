@@ -1,0 +1,54 @@
+name: 🚀 Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.github/**'
+      - '*.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      force-release:
+        description: 'force create release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  validate-compose:
+    uses: bauer-group/automation-templates/.github/workflows/modules-validate-compose.yml@main
+    with:
+      compose-file: 'docker-compose.yml'
+      env-template: |
+        {
+          "GITHUB_OWNER": "my-org",
+          "GITHUB_PAT": "ghp_xxxxxxxxxxxx",
+          "S3_ENDPOINT_URL": "https://minio.example.com",
+          "S3_BUCKET": "github-backups",
+          "S3_ACCESS_KEY": "access-key",
+          "S3_SECRET_KEY": "secret-key"
+        }
+
+  validate-scripts:
+    uses: bauer-group/automation-templates/.github/workflows/modules-validate-shellscript.yml@main
+    with:
+      scan-directory: '.'
+      severity: 'error'
+
+  release:
+    needs: [validate-compose, validate-scripts]
+    if: |
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.validate-compose.outputs.valid == 'true' &&
+      needs.validate-scripts.outputs.passed == 'true'
+    uses: bauer-group/automation-templates/.github/workflows/modules-semantic-release.yml@main
+    with:
+      target-branch: 'main'
+      dry-run: false
+      force-release: ${{ inputs.force-release || false }}
+    secrets: inherit

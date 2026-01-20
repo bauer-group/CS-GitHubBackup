@@ -92,7 +92,7 @@ class WebhookAlerter(BaseAlerter):
             Dictionary payload for JSON serialization.
         """
         return {
-            "event": "backup_alert",
+            "event": "backup_status",
             "service": "github-backup",
             "timestamp": alert.timestamp.isoformat(),
             "level": alert.level.value,

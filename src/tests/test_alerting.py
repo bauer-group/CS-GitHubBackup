@@ -224,7 +224,7 @@ class TestWebhookAlerter:
         call_args = mock_urlopen.call_args
         request = call_args[0][0]
         request_body = json.loads(request.data.decode("utf-8"))
-        assert request_body["event"] == "backup_alert"
+        assert request_body["event"] == "backup_status"
         assert request_body["level"] == "success"
         assert request_body["title"] == "Backup Completed"
         assert request_body["stats"]["repos_backed_up"] == 10

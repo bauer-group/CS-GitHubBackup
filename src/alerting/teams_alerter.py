@@ -124,8 +124,9 @@ class TeamsAlerter(BaseAlerter):
             facts.append({"title": "Repos Failed", "value": str(alert.repos_failed)})
 
         if alert.repos_backed_up > 0:
-            if alert.lfs_repos > 0:
-                facts.append({"title": "Repos with LFS", "value": str(alert.lfs_repos)})
+            # Always show LFS status for consistency
+            lfs_value = str(alert.lfs_repos) if alert.lfs_repos > 0 else "-"
+            facts.append({"title": "Repos with LFS", "value": lfs_value})
 
             facts.extend([
                 {"title": "Issues", "value": str(alert.issues_count)},

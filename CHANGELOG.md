@@ -1,3 +1,9 @@
+## [0.1.1](https://github.com/bauer-group/CS-GitHubBackup/compare/v0.1.0...v0.1.1) (2026-01-20)
+
+### 🐛 Bug Fixes
+
+* **docker)(deps:** bump python from 3.13-alpine to 3.14-alpine ([b47306a](https://github.com/bauer-group/CS-GitHubBackup/commit/b47306a0c8c5ec360118c5a0d2a6cc3b87c371e7))
+
 ## [0.1.0](https://github.com/bauer-group/CS-GitHubBackup/compare/v0.0.0...v0.1.0) (2026-01-20)
 
 ### 🚀 Features

@@ -49,7 +49,10 @@ RUN pip install --no-cache-dir -r requirements.txt -r requirements-test.txt
 COPY src/ .
 
 # Run tests - build fails if tests fail
-RUN pytest tests/ -v --tb=short \
+# Use env -i to clear environment variables that CI/CD systems (like Coolify)
+# inject as build args - these can interfere with Pydantic Settings validation
+RUN env -i HOME="$HOME" PATH="$PATH" PYTHONDONTWRITEBYTECODE=1 \
+    pytest tests/ -v --tb=short \
     && echo "═══════════════════════════════════════════════════════════════════════" \
     && echo "✓ All tests passed successfully" \
     && echo "═══════════════════════════════════════════════════════════════════════"

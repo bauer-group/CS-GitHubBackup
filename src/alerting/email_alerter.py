@@ -4,7 +4,6 @@ GitHub Backup - Email Alerter
 Sends backup alerts via SMTP with HTML and plain text content.
 """
 
-import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -12,8 +11,7 @@ from typing import Optional
 
 from config import Settings
 from alerting.base import AlertData, AlertLevel, BaseAlerter
-
-logger = logging.getLogger(__name__)
+from ui.console import backup_logger
 
 
 class EmailAlerter(BaseAlerter):
@@ -60,7 +58,7 @@ class EmailAlerter(BaseAlerter):
         """
         recipients = self.settings.get_smtp_recipients()
         if not recipients:
-            logger.warning("No email recipients configured")
+            backup_logger.warning("No email recipients configured")
             return False
 
         try:
@@ -84,11 +82,11 @@ class EmailAlerter(BaseAlerter):
                     msg.as_string(),
                 )
 
-            logger.info(f"Alert email sent to {len(recipients)} recipient(s)")
+            backup_logger.info(f"Alert email sent to {len(recipients)} recipient(s)")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to send alert email: {e}")
+            backup_logger.error(f"Failed to send alert email: {e}")
             return False
 
     def test_connection(self) -> bool:
@@ -100,10 +98,10 @@ class EmailAlerter(BaseAlerter):
         try:
             with self._get_smtp_connection() as smtp:
                 smtp.noop()
-            logger.info("SMTP connection test successful")
+            backup_logger.info("SMTP connection test successful")
             return True
         except Exception as e:
-            logger.error(f"SMTP connection test failed: {e}")
+            backup_logger.error(f"SMTP connection test failed: {e}")
             return False
 
     def _build_subject(self, alert: AlertData) -> str:

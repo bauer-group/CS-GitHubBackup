@@ -8,7 +8,6 @@ Supports two modes:
 - Unauthenticated: Without GITHUB_PAT - public repos only, 60 requests/hour
 """
 
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Generator, Optional, Union
@@ -20,8 +19,7 @@ from github.AuthenticatedUser import AuthenticatedUser
 from github.NamedUser import NamedUser
 
 from config import Settings
-
-logger = logging.getLogger(__name__)
+from ui.console import backup_logger
 
 # Type alias for owner objects
 OwnerType = Union[Organization, AuthenticatedUser, NamedUser]
@@ -76,10 +74,10 @@ class GitHubBackupClient:
         if self._authenticated:
             # Use per_page=100 for better performance with large orgs
             self.gh = Github(settings.github_pat, per_page=100)
-            logger.info("GitHub client initialized with authentication (5000 req/hour)")
+            backup_logger.debug("GitHub client initialized with authentication (5000 req/hour)")
         else:
             self.gh = Github(per_page=100)  # Unauthenticated
-            logger.warning(
+            backup_logger.debug(
                 "GitHub client initialized WITHOUT authentication. "
                 "Only public repositories accessible (60 req/hour rate limit). "
                 "Set GITHUB_PAT for private repos and higher rate limits."
@@ -126,9 +124,9 @@ class GitHubBackupClient:
         try:
             org = self.gh.get_organization(owner_name)
             if self._authenticated:
-                logger.info(f"Resolved '{owner_name}' as organization (private repos accessible)")
+                backup_logger.debug(f"Resolved '{owner_name}' as organization (private repos accessible)")
             else:
-                logger.info(f"Resolved '{owner_name}' as organization (public repos only)")
+                backup_logger.debug(f"Resolved '{owner_name}' as organization (public repos only)")
             return org
         except GithubException:
             pass
@@ -138,7 +136,7 @@ class GitHubBackupClient:
             try:
                 authenticated_user = self.gh.get_user()  # No args = AuthenticatedUser
                 if authenticated_user.login.lower() == owner_name.lower():
-                    logger.info(f"Resolved '{owner_name}' as authenticated user (private repos accessible)")
+                    backup_logger.debug(f"Resolved '{owner_name}' as authenticated user (private repos accessible)")
                     return authenticated_user
             except GithubException:
                 pass
@@ -147,12 +145,12 @@ class GitHubBackupClient:
         try:
             user = self.gh.get_user(owner_name)
             if self._authenticated:
-                logger.warning(
+                backup_logger.debug(
                     f"Resolved '{owner_name}' as named user (only public repos accessible). "
                     f"For private repos, ensure GITHUB_OWNER matches your PAT owner."
                 )
             else:
-                logger.info(f"Resolved '{owner_name}' as user (public repos only, no PAT configured)")
+                backup_logger.debug(f"Resolved '{owner_name}' as user (public repos only, no PAT configured)")
             return user
         except GithubException as e:
             raise ValueError(f"Could not find organization or user: {owner_name}") from e
@@ -170,27 +168,27 @@ class GitHubBackupClient:
         if isinstance(self.owner, Organization):
             # For organizations, get all repos (public + private if authenticated)
             repos = self.owner.get_repos(type="all")
-            logger.info("Fetching repos from organization (type=all)")
+            backup_logger.debug("Fetching repos from organization (type=all)")
         elif isinstance(self.owner, AuthenticatedUser):
             if self.settings.github_backup_all_accessible:
                 # Get ALL repos the user has access to (owned, collaborator, org member)
                 repos = self.owner.get_repos()
-                logger.info("Fetching ALL accessible repos (owned + collaborations + org memberships)")
+                backup_logger.debug("Fetching ALL accessible repos (owned + collaborations + org memberships)")
             else:
                 # Get ONLY repos owned by this user
                 repos = self.owner.get_repos(affiliation="owner")
-                logger.info("Fetching only repos owned by authenticated user")
+                backup_logger.debug("Fetching only repos owned by authenticated user")
         else:
             # NamedUser - returns public repos of that user
             repos = self.owner.get_repos()
-            logger.info("Fetching public repos from user (NamedUser)")
+            backup_logger.debug("Fetching public repos from user (NamedUser)")
 
         # Log expected count from API (PyGithub handles pagination automatically)
         try:
             expected_count = repos.totalCount
-            logger.info(f"GitHub API reports {expected_count} repositories")
+            backup_logger.debug(f"GitHub API reports {expected_count} repositories")
         except Exception:
-            logger.debug("Could not get total count from API")
+            backup_logger.debug("Could not get total count from API")
 
         total_count = 0
         yielded_count = 0
@@ -206,7 +204,7 @@ class GitHubBackupClient:
 
             # Progress logging every 100 repos for large orgs
             if total_count % 100 == 0:
-                logger.info(f"Scanning repositories... {total_count} processed")
+                backup_logger.debug(f"Scanning repositories... {total_count} processed")
 
             if self._should_backup(repo):
                 yielded_count += 1
@@ -222,10 +220,10 @@ class GitHubBackupClient:
                 else:
                     # This shouldn't happen - log it
                     skipped_other += 1
-                    logger.warning(f"Repo skipped for unknown reason: {repo.full_name} "
+                    backup_logger.debug(f"Repo skipped for unknown reason: {repo.full_name} "
                                    f"(fork={repo.fork}, private={repo.private}, archived={repo.archived})")
 
-        logger.info(
+        backup_logger.debug(
             f"Repository scan complete: {total_count} found from API, {yielded_count} to backup, "
             f"skipped: {skipped_forks} forks, {skipped_private} private, {skipped_archived} archived"
             + (f", {skipped_other} other" if skipped_other else "")
@@ -242,17 +240,17 @@ class GitHubBackupClient:
         """
         # Skip private repos if not configured
         if repo.private and not self.settings.github_backup_private:
-            logger.info(f"Skipping private repo: {repo.full_name}")
+            backup_logger.debug(f"Skipping private repo: {repo.full_name}")
             return False
 
         # Skip forks if not configured
         if repo.fork and not self.settings.github_backup_forks:
-            logger.info(f"Skipping fork: {repo.full_name}")
+            backup_logger.debug(f"Skipping fork: {repo.full_name}")
             return False
 
         # Skip archived if not configured
         if repo.archived and not self.settings.github_backup_archived:
-            logger.info(f"Skipping archived repo: {repo.full_name}")
+            backup_logger.debug(f"Skipping archived repo: {repo.full_name}")
             return False
 
         return True

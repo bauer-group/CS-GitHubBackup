@@ -9,15 +9,13 @@ Compatible with both:
 """
 
 import json
-import logging
 from typing import Any
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 from config import Settings
 from alerting.base import AlertData, AlertLevel, BaseAlerter
-
-logger = logging.getLogger(__name__)
+from ui.console import backup_logger
 
 
 class TeamsAlerter(BaseAlerter):
@@ -41,17 +39,17 @@ class TeamsAlerter(BaseAlerter):
             True if alert was sent successfully.
         """
         if not self.settings.teams_webhook_url:
-            logger.warning("No Teams webhook URL configured")
+            backup_logger.warning("No Teams webhook URL configured")
             return False
 
         try:
             payload = self._build_adaptive_card(alert)
             self._send_to_teams(payload)
-            logger.info("Teams alert sent successfully")
+            backup_logger.info("Teams alert sent successfully")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to send Teams alert: {e}")
+            backup_logger.error(f"Failed to send Teams alert: {e}")
             return False
 
     def test_connection(self) -> bool:
@@ -61,17 +59,17 @@ class TeamsAlerter(BaseAlerter):
             True if connection is working.
         """
         if not self.settings.teams_webhook_url:
-            logger.error("No Teams webhook URL configured")
+            backup_logger.error("No Teams webhook URL configured")
             return False
 
         try:
             test_card = self._build_test_card()
             self._send_to_teams(test_card)
-            logger.info("Teams connection test successful")
+            backup_logger.info("Teams connection test successful")
             return True
 
         except Exception as e:
-            logger.error(f"Teams connection test failed: {e}")
+            backup_logger.error(f"Teams connection test failed: {e}")
             return False
 
     def _build_adaptive_card(self, alert: AlertData) -> dict[str, Any]:
@@ -292,7 +290,7 @@ class TeamsAlerter(BaseAlerter):
         try:
             with urlopen(request, timeout=30) as response:
                 response_body = response.read().decode("utf-8")
-                logger.debug(f"Teams response: {response.status} - {response_body}")
+                backup_logger.debug(f"Teams response: {response.status} - {response_body}")
 
         except HTTPError as e:
             response_body = ""
@@ -301,9 +299,9 @@ class TeamsAlerter(BaseAlerter):
                     response_body = e.fp.read().decode("utf-8")[:500]
                 except Exception:
                     pass
-            logger.error(f"Teams HTTP error {e.code}: {response_body}")
+            backup_logger.error(f"Teams HTTP error {e.code}: {response_body}")
             raise
 
         except URLError as e:
-            logger.error(f"Teams connection error: {e.reason}")
+            backup_logger.error(f"Teams connection error: {e.reason}")
             raise

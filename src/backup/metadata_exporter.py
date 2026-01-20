@@ -5,7 +5,6 @@ Exports repository metadata (issues, pull requests, releases) to JSON.
 """
 
 import json
-import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -13,7 +12,7 @@ from typing import Any, Optional
 from github import GithubException
 from github.Repository import Repository
 
-logger = logging.getLogger(__name__)
+from ui.console import backup_logger
 
 
 class MetadataExporter:
@@ -51,21 +50,21 @@ class MetadataExporter:
             issues = self.export_issues(repo, repo_dir / "issues.json")
             counts["issues"] = len(issues)
         except GithubException as e:
-            logger.warning(f"Failed to export issues for {repo.name}: {e}")
+            backup_logger.warning(f"Failed to export issues for {repo.name}: {e}")
 
         # Export pull requests
         try:
             prs = self.export_pull_requests(repo, repo_dir / "pull-requests.json")
             counts["prs"] = len(prs)
         except GithubException as e:
-            logger.warning(f"Failed to export PRs for {repo.name}: {e}")
+            backup_logger.warning(f"Failed to export PRs for {repo.name}: {e}")
 
         # Export releases
         try:
             releases = self.export_releases(repo, repo_dir / "releases.json")
             counts["releases"] = len(releases)
         except GithubException as e:
-            logger.warning(f"Failed to export releases for {repo.name}: {e}")
+            backup_logger.warning(f"Failed to export releases for {repo.name}: {e}")
 
         return counts
 
@@ -79,7 +78,7 @@ class MetadataExporter:
         Returns:
             List of exported issues.
         """
-        logger.debug(f"Exporting issues for {repo.name}...")
+        backup_logger.debug(f"Exporting issues for {repo.name}...")
 
         issues = []
         for issue in repo.get_issues(state="all"):
@@ -103,7 +102,7 @@ class MetadataExporter:
         Returns:
             List of exported pull requests.
         """
-        logger.debug(f"Exporting pull requests for {repo.name}...")
+        backup_logger.debug(f"Exporting pull requests for {repo.name}...")
 
         prs = []
         for pr in repo.get_pulls(state="all"):
@@ -123,7 +122,7 @@ class MetadataExporter:
         Returns:
             List of exported releases.
         """
-        logger.debug(f"Exporting releases for {repo.name}...")
+        backup_logger.debug(f"Exporting releases for {repo.name}...")
 
         releases = []
         for release in repo.get_releases():
@@ -209,7 +208,7 @@ class MetadataExporter:
                     "updated_at": self._datetime_to_str(comment.updated_at),
                 })
         except GithubException:
-            logger.debug(f"Could not fetch comments for issue #{issue.number}")
+            backup_logger.debug(f"Could not fetch comments for issue #{issue.number}")
         return comments
 
     @staticmethod

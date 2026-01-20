@@ -24,6 +24,7 @@ from backup.metadata_exporter import MetadataExporter
 from backup.wiki_backup import WikiBackup
 from storage.s3_client import S3Storage
 from ui.console import (
+    backup_logger,
     console,
     create_progress,
     print_banner,
@@ -34,8 +35,6 @@ from ui.console import (
     setup_logging,
     format_size,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class ShutdownHandler:
@@ -52,7 +51,7 @@ class ShutdownHandler:
     def request_shutdown(self, signum: int, frame) -> None:
         """Signal handler for shutdown requests."""
         signal_name = signal.Signals(signum).name
-        logger.info(f"Received {signal_name}, initiating graceful shutdown...")
+        backup_logger.debug(f"Received {signal_name}, initiating graceful shutdown...")
 
         with self._lock:
             if self._current_repo:
@@ -276,7 +275,7 @@ def run_backup(settings: Settings) -> bool:
                     )
 
                 except Exception as e:
-                    logger.error(f"Failed to backup {repo_name}: {e}")
+                    backup_logger.debug(f"Failed to backup {repo_name}: {e}")
                     repo_stats["error"] = str(e)
                     stats["errors"] += 1
                     error_messages.append(f"{repo_name}: {e}")

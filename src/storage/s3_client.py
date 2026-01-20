@@ -4,7 +4,6 @@ GitHub Backup - S3 Storage Module
 Provides S3-compatible storage operations for backup upload and retention management.
 """
 
-import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -15,8 +14,7 @@ from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
 from config import Settings
-
-logger = logging.getLogger(__name__)
+from ui.console import backup_logger
 
 
 class MultipartUploader:
@@ -59,7 +57,7 @@ class MultipartUploader:
             self.s3.upload_file(str(local_path), self.bucket, key)
             return
 
-        logger.debug(
+        backup_logger.debug(
             f"Using multipart upload for {local_path.name} "
             f"({file_size / (1024*1024):.1f} MB)"
         )
@@ -92,7 +90,7 @@ class MultipartUploader:
                         "ETag": part_response["ETag"],
                     })
 
-                    logger.debug(
+                    backup_logger.debug(
                         f"Uploaded part {part_number} ({len(chunk) / (1024*1024):.1f} MB)"
                     )
                     part_number += 1
@@ -105,13 +103,13 @@ class MultipartUploader:
                 MultipartUpload={"Parts": parts},
             )
 
-            logger.debug(
+            backup_logger.debug(
                 f"Completed multipart upload with {len(parts)} parts"
             )
 
         except Exception as e:
             # Abort upload on failure
-            logger.error(f"Multipart upload failed, aborting: {e}")
+            backup_logger.error(f"Multipart upload failed, aborting: {e}")
             self.s3.abort_multipart_upload(
                 Bucket=self.bucket,
                 Key=key,
@@ -182,13 +180,13 @@ class S3Storage:
         """
         key = f"{self.prefix}/{repo_name}/{backup_id}/{local_path.name}"
 
-        logger.debug(f"Uploading {local_path.name} to s3://{self.bucket}/{key}")
+        backup_logger.debug(f"Uploading {local_path.name} to s3://{self.bucket}/{key}")
 
         try:
             self.uploader.upload_file(local_path, key)
             return key
         except ClientError as e:
-            logger.error(f"Failed to upload {local_path}: {e}")
+            backup_logger.error(f"Failed to upload {local_path}: {e}")
             raise
 
     def upload_directory(self, local_dir: Path, backup_id: str, repo_name: str) -> int:
@@ -212,7 +210,7 @@ class S3Storage:
                     self.s3.upload_file(str(file_path), self.bucket, key)
                     count += 1
                 except ClientError as e:
-                    logger.warning(f"Failed to upload {file_path}: {e}")
+                    backup_logger.warning(f"Failed to upload {file_path}: {e}")
 
         return count
 
@@ -243,7 +241,7 @@ class S3Storage:
             return sorted(repos)
 
         except ClientError as e:
-            logger.error(f"Failed to list repos: {e}")
+            backup_logger.error(f"Failed to list repos: {e}")
             return []
 
     def list_backups(self) -> list[str]:
@@ -277,7 +275,7 @@ class S3Storage:
             return sorted(backup_ids, reverse=True)
 
         except ClientError as e:
-            logger.error(f"Failed to list backups: {e}")
+            backup_logger.error(f"Failed to list backups: {e}")
             return []
 
     def delete_backup(self, backup_id: str) -> int:
@@ -319,13 +317,13 @@ class S3Storage:
                     errors = response.get("Errors", [])
                     if errors:
                         for error in errors:
-                            logger.warning(f"Failed to delete {error['Key']}: {error['Message']}")
+                            backup_logger.warning(f"Failed to delete {error['Key']}: {error['Message']}")
 
-            logger.info(f"Deleted backup {backup_id} ({deleted_count} objects)")
+            backup_logger.info(f"Deleted backup {backup_id} ({deleted_count} objects)")
             return deleted_count
 
         except ClientError as e:
-            logger.error(f"Failed to delete backup {backup_id}: {e}")
+            backup_logger.error(f"Failed to delete backup {backup_id}: {e}")
             return 0
 
     def cleanup_old_backups(
@@ -349,14 +347,14 @@ class S3Storage:
         deleted_count = 0
 
         if len(backups) <= self.retention:
-            logger.debug(f"No cleanup needed: {len(backups)} backups <= {self.retention} retention")
+            backup_logger.debug(f"No cleanup needed: {len(backups)} backups <= {self.retention} retention")
             return 0
 
         # Build set of protected backup IDs (last backup for each repo)
         protected_backup_ids = set()
         if repo_last_backups:
             protected_backup_ids = set(repo_last_backups.values())
-            logger.debug(f"Protected backup IDs (last backup for repos): {protected_backup_ids}")
+            backup_logger.debug(f"Protected backup IDs (last backup for repos): {protected_backup_ids}")
 
         # Delete oldest backups exceeding retention, but protect repo last backups
         candidates_to_delete = backups[self.retention:]
@@ -364,14 +362,14 @@ class S3Storage:
 
         for backup_id in candidates_to_delete:
             if backup_id in protected_backup_ids:
-                logger.info(
+                backup_logger.info(
                     f"Preserving backup {backup_id} (last backup for one or more repos)"
                 )
             else:
                 to_delete.append(backup_id)
 
         if to_delete:
-            logger.info(f"Cleaning up {len(to_delete)} old backup(s)")
+            backup_logger.info(f"Cleaning up {len(to_delete)} old backup(s)")
 
             for backup_id in to_delete:
                 self.delete_backup(backup_id)
@@ -391,15 +389,15 @@ class S3Storage:
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "")
             if error_code == "404":
-                logger.info(f"Bucket {self.bucket} does not exist, creating...")
+                backup_logger.info(f"Bucket {self.bucket} does not exist, creating...")
                 try:
                     self.s3.create_bucket(Bucket=self.bucket)
                     return True
                 except ClientError as create_error:
-                    logger.error(f"Failed to create bucket: {create_error}")
+                    backup_logger.error(f"Failed to create bucket: {create_error}")
                     return False
             else:
-                logger.error(f"Error checking bucket: {e}")
+                backup_logger.error(f"Error checking bucket: {e}")
                 return False
 
     def get_backup_size(self, backup_id: str) -> int:
@@ -454,10 +452,10 @@ class S3Storage:
 
         try:
             self.s3.upload_file(str(local_path), self.bucket, key)
-            logger.debug(f"Uploaded state to s3://{self.bucket}/{key}")
+            backup_logger.debug(f"Uploaded state to s3://{self.bucket}/{key}")
             return True
         except ClientError as e:
-            logger.error(f"Failed to upload state to S3: {e}")
+            backup_logger.error(f"Failed to upload state to S3: {e}")
             return False
 
     def download_state(self, local_path: Path) -> bool:
@@ -476,14 +474,14 @@ class S3Storage:
             local_path.parent.mkdir(parents=True, exist_ok=True)
 
             self.s3.download_file(self.bucket, key, str(local_path))
-            logger.info(f"Downloaded state from s3://{self.bucket}/{key}")
+            backup_logger.info(f"Downloaded state from s3://{self.bucket}/{key}")
             return True
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "")
             if error_code == "404" or error_code == "NoSuchKey":
-                logger.debug(f"No state file found in S3 (first run)")
+                backup_logger.debug(f"No state file found in S3 (first run)")
                 return False
-            logger.error(f"Failed to download state from S3: {e}")
+            backup_logger.error(f"Failed to download state from S3: {e}")
             return False
 
     def state_exists(self) -> bool:

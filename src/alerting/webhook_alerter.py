@@ -8,7 +8,6 @@ Supports optional HMAC signature for verification.
 import hashlib
 import hmac
 import json
-import logging
 from datetime import datetime
 from typing import Any, Optional
 from urllib.request import Request, urlopen
@@ -16,8 +15,7 @@ from urllib.error import HTTPError, URLError
 
 from config import Settings
 from alerting.base import AlertData, AlertLevel, BaseAlerter
-
-logger = logging.getLogger(__name__)
+from ui.console import backup_logger
 
 
 class WebhookAlerter(BaseAlerter):
@@ -41,17 +39,17 @@ class WebhookAlerter(BaseAlerter):
             True if webhook was called successfully.
         """
         if not self.settings.webhook_url:
-            logger.warning("No webhook URL configured")
+            backup_logger.warning("No webhook URL configured")
             return False
 
         try:
             payload = self._build_payload(alert)
             self._send_webhook(payload)
-            logger.info("Webhook alert sent successfully")
+            backup_logger.info("Webhook alert sent successfully")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to send webhook alert: {e}")
+            backup_logger.error(f"Failed to send webhook alert: {e}")
             return False
 
     def test_connection(self) -> bool:
@@ -61,7 +59,7 @@ class WebhookAlerter(BaseAlerter):
             True if connection is working.
         """
         if not self.settings.webhook_url:
-            logger.error("No webhook URL configured")
+            backup_logger.error("No webhook URL configured")
             return False
 
         try:
@@ -72,11 +70,11 @@ class WebhookAlerter(BaseAlerter):
                 "message": "Webhook connection test",
             }
             self._send_webhook(test_payload)
-            logger.info("Webhook connection test successful")
+            backup_logger.info("Webhook connection test successful")
             return True
 
         except Exception as e:
-            logger.error(f"Webhook connection test failed: {e}")
+            backup_logger.error(f"Webhook connection test failed: {e}")
             return False
 
     def _build_payload(self, alert: AlertData) -> dict[str, Any]:
@@ -165,7 +163,7 @@ class WebhookAlerter(BaseAlerter):
                         response.headers,
                         None,
                     )
-                logger.debug(f"Webhook response: {status}")
+                backup_logger.debug(f"Webhook response: {status}")
 
         except HTTPError as e:
             response_body = ""
@@ -174,11 +172,11 @@ class WebhookAlerter(BaseAlerter):
                     response_body = e.fp.read().decode("utf-8")[:500]
                 except Exception:
                     pass
-            logger.error(f"Webhook HTTP error {e.code}: {response_body}")
+            backup_logger.error(f"Webhook HTTP error {e.code}: {response_body}")
             raise
 
         except URLError as e:
-            logger.error(f"Webhook connection error: {e.reason}")
+            backup_logger.error(f"Webhook connection error: {e.reason}")
             raise
 
     def _compute_signature(self, data: bytes) -> str:

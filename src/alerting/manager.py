@@ -4,7 +4,6 @@ GitHub Backup - Alert Manager
 Coordinates alert sending across multiple channels based on configuration.
 """
 
-import logging
 from typing import Optional
 
 from config import Settings
@@ -12,8 +11,7 @@ from alerting.base import AlertData, AlertLevel, BaseAlerter
 from alerting.email_alerter import EmailAlerter
 from alerting.webhook_alerter import WebhookAlerter
 from alerting.teams_alerter import TeamsAlerter
-
-logger = logging.getLogger(__name__)
+from ui.console import backup_logger
 
 
 class AlertManager:
@@ -39,32 +37,32 @@ class AlertManager:
         if "email" in channels:
             missing = self._validate_email_config()
             if missing:
-                logger.warning(
+                backup_logger.warning(
                     f"Email alerter disabled - missing required settings: {', '.join(missing)}"
                 )
             else:
                 self._alerters["email"] = EmailAlerter(self.settings)
-                logger.debug("Email alerter initialized")
+                backup_logger.debug("Email alerter initialized")
 
         if "webhook" in channels:
             missing = self._validate_webhook_config()
             if missing:
-                logger.warning(
+                backup_logger.warning(
                     f"Webhook alerter disabled - missing required settings: {', '.join(missing)}"
                 )
             else:
                 self._alerters["webhook"] = WebhookAlerter(self.settings)
-                logger.debug("Webhook alerter initialized")
+                backup_logger.debug("Webhook alerter initialized")
 
         if "teams" in channels:
             missing = self._validate_teams_config()
             if missing:
-                logger.warning(
+                backup_logger.warning(
                     f"Teams alerter disabled - missing required settings: {', '.join(missing)}"
                 )
             else:
                 self._alerters["teams"] = TeamsAlerter(self.settings)
-                logger.debug("Teams alerter initialized")
+                backup_logger.debug("Teams alerter initialized")
 
     def _validate_email_config(self) -> list[str]:
         """Validate email configuration and return list of missing settings."""
@@ -163,7 +161,7 @@ class AlertManager:
         results = {}
 
         if not self.should_send_alert(alert.level):
-            logger.debug(f"Alert level {alert.level.value} not configured for sending")
+            backup_logger.debug(f"Alert level {alert.level.value} not configured for sending")
             return results
 
         for channel, alerter in self._alerters.items():
@@ -171,11 +169,11 @@ class AlertManager:
                 success = alerter.send(alert)
                 results[channel] = success
                 if success:
-                    logger.info(f"Alert sent via {channel}")
+                    backup_logger.info(f"Alert sent via {channel}")
                 else:
-                    logger.warning(f"Failed to send alert via {channel}")
+                    backup_logger.warning(f"Failed to send alert via {channel}")
             except Exception as e:
-                logger.error(f"Error sending alert via {channel}: {e}")
+                backup_logger.error(f"Error sending alert via {channel}: {e}")
                 results[channel] = False
 
         return results
@@ -342,7 +340,7 @@ class AlertManager:
                 success = alerter.test_connection()
                 results[channel] = success
             except Exception as e:
-                logger.error(f"Error testing {channel} connection: {e}")
+                backup_logger.error(f"Error testing {channel} connection: {e}")
                 results[channel] = False
 
         return results

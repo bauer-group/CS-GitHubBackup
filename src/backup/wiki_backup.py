@@ -4,15 +4,13 @@ GitHub Backup - Wiki Backup Module
 Handles backup of repository wikis.
 """
 
-import logging
 from pathlib import Path
 from typing import Optional
 
 from git import GitCommandError
 
+from ui.console import backup_logger
 from .git_operations import GitBackup
-
-logger = logging.getLogger(__name__)
 
 
 class WikiBackup:
@@ -41,7 +39,7 @@ class WikiBackup:
             Tuple of (bundle_path, size_bytes) if wiki exists, (None, None) otherwise.
         """
         if not wiki_url:
-            logger.debug(f"No wiki URL for {repo_name}")
+            backup_logger.debug(f"No wiki URL for {repo_name}")
             return None, None
 
         wiki_name = f"{repo_name}.wiki"
@@ -50,18 +48,18 @@ class WikiBackup:
             bundle_path, bundle_size = self.git_backup.clone_and_bundle(
                 wiki_url, wiki_name
             )
-            logger.info(f"Wiki backup created for {repo_name}")
+            backup_logger.info(f"Wiki backup created for {repo_name}")
             return bundle_path, bundle_size
 
         except GitCommandError as e:
             # Wiki might be enabled but empty, or access denied
             error_msg = str(e).lower()
             if "repository not found" in error_msg or "not exist" in error_msg:
-                logger.debug(f"Wiki not available for {repo_name} (empty or disabled)")
+                backup_logger.debug(f"Wiki not available for {repo_name} (empty or disabled)")
             else:
-                logger.warning(f"Failed to backup wiki for {repo_name}: {e}")
+                backup_logger.warning(f"Failed to backup wiki for {repo_name}: {e}")
             return None, None
 
         except Exception as e:
-            logger.warning(f"Unexpected error backing up wiki for {repo_name}: {e}")
+            backup_logger.warning(f"Unexpected error backing up wiki for {repo_name}: {e}")
             return None, None

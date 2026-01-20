@@ -9,15 +9,14 @@ and data volume loss.
 """
 
 import json
-import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
+from ui.console import backup_logger
+
 if TYPE_CHECKING:
     from storage.s3_client import S3Storage
-
-logger = logging.getLogger(__name__)
 
 
 class RepoState:
@@ -96,22 +95,22 @@ class SyncStateManager:
 
         if not self.state_file.exists():
             # No local state - try to restore from S3
-            logger.info("No local state found, checking S3 for saved state...")
+            backup_logger.info("No local state found, checking S3 for saved state...")
             if self.s3_storage.download_state(self.state_file):
-                logger.info("State restored from S3")
+                backup_logger.info("State restored from S3")
             else:
-                logger.debug("No state in S3 (first run)")
+                backup_logger.debug("No state in S3 (first run)")
         else:
             # Local state exists - verify S3 also has state
             # If S3 has no state, it means S3 was reset/changed and local state is invalid
             if not self.s3_storage.state_exists():
-                logger.warning(
+                backup_logger.warning(
                     "Local state exists but S3 has no state - "
                     "S3 storage was likely reset. Discarding local state."
                 )
                 self.state_file.unlink()
                 self._state = None
-                logger.info("Local state discarded, starting fresh")
+                backup_logger.info("Local state discarded, starting fresh")
 
     def _sync_state_to_s3(self) -> None:
         """Upload state to S3 for persistence."""
@@ -119,7 +118,7 @@ class SyncStateManager:
             return
 
         if self.s3_storage.upload_state(self.state_file):
-            logger.debug("State synced to S3")
+            backup_logger.debug("State synced to S3")
 
     def set_s3_storage(self, s3_storage: "S3Storage") -> None:
         """Set S3 storage for state sync (can be called after init).
@@ -148,7 +147,7 @@ class SyncStateManager:
                     self._state["repositories"] = {}
                 return self._state
         except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"Failed to read sync state: {e}")
+            backup_logger.warning(f"Failed to read sync state: {e}")
             self._state = {"repositories": {}}
             return self._state
 
@@ -165,7 +164,7 @@ class SyncStateManager:
             # Sync to S3 for persistence
             self._sync_state_to_s3()
         except IOError as e:
-            logger.error(f"Failed to write sync state: {e}")
+            backup_logger.error(f"Failed to write sync state: {e}")
 
     def get_last_sync_time(self) -> Optional[datetime]:
         """Get the timestamp of the last successful backup.
@@ -194,7 +193,7 @@ class SyncStateManager:
         state = self._load_state()
         state["last_sync"] = sync_time.isoformat()
         self._save_state()
-        logger.debug(f"Updated sync state: {sync_time.isoformat()}")
+        backup_logger.debug(f"Updated sync state: {sync_time.isoformat()}")
 
     # === Repository State Methods ===
 
@@ -233,7 +232,7 @@ class SyncStateManager:
             "last_backup_id": backup_id,
         }
         self._save_state()
-        logger.debug(f"Updated repo state: {repo_name} -> {backup_id}")
+        backup_logger.debug(f"Updated repo state: {repo_name} -> {backup_id}")
 
     def has_repo_changed(self, repo_name: str, current_pushed_at: str) -> bool:
         """Check if a repository has changed since last backup.
@@ -248,20 +247,20 @@ class SyncStateManager:
         repo_state = self.get_repo_state(repo_name)
 
         if repo_state is None:
-            logger.debug(f"{repo_name}: No previous backup, needs backup")
+            backup_logger.debug(f"{repo_name}: No previous backup, needs backup")
             return True
 
         if repo_state.pushed_at is None:
-            logger.debug(f"{repo_name}: No pushed_at in state, needs backup")
+            backup_logger.debug(f"{repo_name}: No pushed_at in state, needs backup")
             return True
 
         if current_pushed_at != repo_state.pushed_at:
-            logger.debug(
+            backup_logger.debug(
                 f"{repo_name}: Changed (was {repo_state.pushed_at}, now {current_pushed_at})"
             )
             return True
 
-        logger.debug(f"{repo_name}: Unchanged since {repo_state.last_backup}")
+        backup_logger.debug(f"{repo_name}: Unchanged since {repo_state.last_backup}")
         return False
 
     def get_last_backup_id(self, repo_name: str) -> Optional[str]:
@@ -301,7 +300,7 @@ class SyncStateManager:
         if repo_name in state["repositories"]:
             del state["repositories"][repo_name]
             self._save_state()
-            logger.debug(f"Removed repo state: {repo_name}")
+            backup_logger.debug(f"Removed repo state: {repo_name}")
 
     def should_run_backup(self, schedule_hour: int, schedule_minute: int) -> bool:
         """Determine if a backup should run based on last sync time.
@@ -318,7 +317,7 @@ class SyncStateManager:
         last_sync = self.get_last_sync_time()
 
         if last_sync is None:
-            logger.info("No previous backup found, backup recommended")
+            backup_logger.info("No previous backup found, backup recommended")
             return True
 
         now = datetime.now()
@@ -340,13 +339,13 @@ class SyncStateManager:
 
         # If last sync was before the last scheduled time, we missed a backup
         if last_sync < last_scheduled:
-            logger.info(
+            backup_logger.info(
                 f"Missed scheduled backup at {last_scheduled.isoformat()}, "
                 f"last sync was {last_sync.isoformat()}"
             )
             return True
 
-        logger.debug(
+        backup_logger.debug(
             f"No missed backup: last sync {last_sync.isoformat()} "
             f"is after scheduled {last_scheduled.isoformat()}"
         )
@@ -356,4 +355,4 @@ class SyncStateManager:
         """Remove the sync state file."""
         if self.state_file.exists():
             self.state_file.unlink()
-            logger.debug("Cleared sync state")
+            backup_logger.debug("Cleared sync state")

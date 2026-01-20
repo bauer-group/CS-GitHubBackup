@@ -2,6 +2,7 @@
 GitHub Backup - Console UI Module
 
 Provides rich console output with progress bars, tables, and formatted logging.
+All user-facing output should go through this module for consistency.
 """
 
 from datetime import datetime
@@ -27,14 +28,84 @@ import logging
 console = Console()
 
 
+class BackupLogger:
+    """Unified logger for consistent console output.
+
+    Provides two output modes:
+    - User-facing messages (no timestamp, colored)
+    - Debug/system messages (with timestamp, via logging)
+
+    Use this class instead of mixing console.print() and logger.info().
+    """
+
+    def __init__(self, name: str = "backup"):
+        """Initialize the backup logger.
+
+        Args:
+            name: Logger name for identification.
+        """
+        self._logger = logging.getLogger(name)
+
+    def info(self, message: str, style: str = "dim") -> None:
+        """Print an info message without timestamp.
+
+        Use for operational messages during backup.
+        """
+        console.print(f"[{style}]{message}[/]")
+
+    def success(self, message: str) -> None:
+        """Print a success message."""
+        console.print(f"[green]✓ {message}[/]")
+
+    def warning(self, message: str) -> None:
+        """Print a warning message."""
+        console.print(f"[yellow]⚠ {message}[/]")
+
+    def error(self, message: str) -> None:
+        """Print an error message."""
+        console.print(f"[red]✗ {message}[/]")
+
+    def status(self, message: str) -> None:
+        """Print a status/progress message."""
+        console.print(f"[dim]{message}[/]")
+
+    def debug(self, message: str) -> None:
+        """Log a debug message (with timestamp, only if DEBUG level)."""
+        self._logger.debug(message)
+
+    def system(self, message: str) -> None:
+        """Log a system message (with timestamp)."""
+        self._logger.info(message)
+
+
+# Global backup logger instance
+backup_logger = BackupLogger()
+
+
 def setup_logging(level: str = "INFO") -> None:
-    """Configure logging with Rich handler."""
-    logging.basicConfig(
-        level=level,
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[RichHandler(console=console, rich_tracebacks=True)],
+    """Configure logging with Rich handler.
+
+    Only ERROR and DEBUG messages will show timestamps.
+    Regular INFO messages should use backup_logger for consistency.
+    """
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+
+    # Remove existing handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Add Rich handler with minimal formatting for cleaner output
+    handler = RichHandler(
+        console=console,
+        rich_tracebacks=True,
+        show_time=level == "DEBUG",  # Only show time in DEBUG mode
+        show_level=level == "DEBUG",  # Only show level in DEBUG mode
+        show_path=level == "DEBUG",   # Only show path in DEBUG mode
     )
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    root_logger.addHandler(handler)
 
 
 def create_progress() -> Progress:

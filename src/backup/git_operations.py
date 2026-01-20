@@ -5,7 +5,6 @@ Provides git operations for cloning repositories and creating bundles.
 Includes Git LFS support for complete backups.
 """
 
-import logging
 import os
 import shutil
 import subprocess
@@ -16,7 +15,7 @@ from typing import Optional
 
 from git import Repo, GitCommandError
 
-logger = logging.getLogger(__name__)
+from ui.console import backup_logger
 
 
 @dataclass
@@ -67,7 +66,7 @@ class GitBackup:
         if mirror_path.exists():
             shutil.rmtree(mirror_path)
 
-        logger.debug(f"Cloning {repo_name} as mirror...")
+        backup_logger.debug(f"Cloning {repo_name} as mirror...")
 
         # Clone - let caller handle logging for failures
         Repo.clone_from(
@@ -117,10 +116,10 @@ class GitBackup:
 
         # Check if repository is empty
         if self.is_empty_repo(mirror_path):
-            logger.info(f"Repository {repo_name} is empty, skipping bundle creation")
+            backup_logger.debug(f"Repository {repo_name} is empty, skipping bundle creation")
             return None
 
-        logger.debug(f"Creating bundle for {repo_name}...")
+        backup_logger.debug(f"Creating bundle for {repo_name}...")
 
         # Remove existing bundle if present
         if bundle_path.exists():
@@ -138,9 +137,9 @@ class GitBackup:
         except subprocess.CalledProcessError as e:
             # Double-check for empty bundle error
             if "empty bundle" in e.stderr.lower():
-                logger.info(f"Repository {repo_name} is empty, skipping bundle creation")
+                backup_logger.debug(f"Repository {repo_name} is empty, skipping bundle creation")
                 return None
-            logger.error(f"Failed to create bundle for {repo_name}: {e.stderr}")
+            backup_logger.debug(f"Failed to create bundle for {repo_name}: {e.stderr}")
             raise
 
         return bundle_path
@@ -162,7 +161,7 @@ class GitBackup:
                 text=True,
             )
             if result.returncode != 0:
-                logger.debug("git-lfs not installed, skipping LFS check")
+                backup_logger.debug("git-lfs not installed, skipping LFS check")
                 return False
 
             # Check for LFS objects in the repo by listing LFS files
@@ -177,11 +176,11 @@ class GitBackup:
             # If there's output, repo has LFS files
             has_lfs_files = bool(result.stdout.strip())
             if has_lfs_files:
-                logger.debug(f"Repository uses LFS ({len(result.stdout.strip().splitlines())} files)")
+                backup_logger.debug(f"Repository uses LFS ({len(result.stdout.strip().splitlines())} files)")
             return has_lfs_files
 
         except Exception as e:
-            logger.debug(f"LFS check failed: {e}")
+            backup_logger.debug(f"LFS check failed: {e}")
             return False
 
     def fetch_lfs_objects(self, mirror_path: Path) -> bool:
@@ -194,7 +193,7 @@ class GitBackup:
             True if LFS fetch succeeded.
         """
         repo_name = mirror_path.stem
-        logger.debug(f"Fetching LFS objects for {repo_name}...")
+        backup_logger.debug(f"Fetching LFS objects for {repo_name}...")
 
         try:
             result = subprocess.run(
@@ -207,16 +206,16 @@ class GitBackup:
             )
 
             if result.returncode != 0:
-                logger.warning(f"LFS fetch returned non-zero: {result.stderr}")
+                backup_logger.debug(f"LFS fetch returned non-zero: {result.stderr}")
                 # Continue anyway - partial LFS is better than none
 
             return True
 
         except subprocess.TimeoutExpired:
-            logger.error(f"LFS fetch timed out for {repo_name}")
+            backup_logger.debug(f"LFS fetch timed out for {repo_name}")
             return False
         except Exception as e:
-            logger.error(f"LFS fetch failed for {repo_name}: {e}")
+            backup_logger.debug(f"LFS fetch failed for {repo_name}: {e}")
             return False
 
     def create_lfs_archive(self, mirror_path: Path) -> Optional[Path]:
@@ -233,7 +232,7 @@ class GitBackup:
 
         # Check if LFS objects directory exists and has content
         if not lfs_objects_dir.exists():
-            logger.debug(f"No LFS objects directory for {repo_name}")
+            backup_logger.debug(f"No LFS objects directory for {repo_name}")
             return None
 
         # Check if there are actual objects
@@ -241,11 +240,11 @@ class GitBackup:
         lfs_files = [f for f in lfs_files if f.is_file()]
 
         if not lfs_files:
-            logger.debug(f"LFS objects directory is empty for {repo_name}")
+            backup_logger.debug(f"LFS objects directory is empty for {repo_name}")
             return None
 
         archive_path = mirror_path.with_suffix(".lfs.tar.gz")
-        logger.debug(f"Creating LFS archive for {repo_name} ({len(lfs_files)} objects)...")
+        backup_logger.debug(f"Creating LFS archive for {repo_name} ({len(lfs_files)} objects)...")
 
         try:
             with tarfile.open(archive_path, "w:gz") as tar:
@@ -256,11 +255,11 @@ class GitBackup:
                     recursive=True
                 )
 
-            logger.info(f"Created LFS archive: {archive_path.name} ({archive_path.stat().st_size} bytes)")
+            backup_logger.debug(f"Created LFS archive: {archive_path.name} ({archive_path.stat().st_size} bytes)")
             return archive_path
 
         except Exception as e:
-            logger.error(f"Failed to create LFS archive for {repo_name}: {e}")
+            backup_logger.debug(f"Failed to create LFS archive for {repo_name}: {e}")
             if archive_path.exists():
                 archive_path.unlink()
             return None
@@ -295,7 +294,7 @@ class GitBackup:
         # Check for and handle LFS
         if self.has_lfs(mirror_path):
             result.has_lfs = True
-            logger.info(f"Repository {repo_name} uses Git LFS, fetching objects...")
+            backup_logger.debug(f"Repository {repo_name} uses Git LFS, fetching objects...")
 
             if self.fetch_lfs_objects(mirror_path):
                 lfs_archive = self.create_lfs_archive(mirror_path)

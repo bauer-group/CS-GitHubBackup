@@ -4,7 +4,6 @@ GitHub Backup - Scheduler Module
 Provides scheduled backup execution using APScheduler v4 with state persistence.
 """
 
-import logging
 import signal
 import sys
 from typing import Callable
@@ -16,9 +15,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from config import Settings
 from storage.s3_client import S3Storage
 from sync_state_manager import SyncStateManager
-from ui.console import console
-
-logger = logging.getLogger(__name__)
+from ui.console import backup_logger, console
 
 
 class BackupScheduler:
@@ -45,9 +42,9 @@ class BackupScheduler:
             success = self.backup_func()
             if success:
                 self.state_manager.update_sync_time()
-                logger.info("Sync state updated after successful backup")
+                backup_logger.debug("Sync state updated after successful backup")
         except Exception as e:
-            logger.error(f"Backup execution failed: {e}")
+            backup_logger.debug(f"Backup execution failed: {e}")
             raise
 
     def _job_listener(self, event: Event) -> None:
@@ -58,10 +55,10 @@ class BackupScheduler:
         """
         if isinstance(event, JobReleased):
             if event.outcome and event.outcome.name == "error":
-                logger.error(f"Backup job failed")
+                backup_logger.debug("Backup job failed")
                 console.print(f"[red]Backup job failed[/]")
             else:
-                logger.info("Backup job completed successfully")
+                backup_logger.debug("Backup job completed successfully")
 
             # Show next run time
             self._print_next_run_time()
@@ -76,9 +73,9 @@ class BackupScheduler:
             if schedule and schedule.next_fire_time:
                 next_time = schedule.next_fire_time.strftime("%Y-%m-%d %H:%M:%S")
                 console.print(f"\n[dim]Next backup scheduled for:[/] [cyan]{next_time}[/]")
-                logger.info(f"Next backup scheduled for: {next_time}")
+                backup_logger.debug(f"Next backup scheduled for: {next_time}")
         except Exception as e:
-            logger.debug(f"Could not get next run time: {e}")
+            backup_logger.debug(f"Could not get next run time: {e}")
 
     def _create_trigger(self):
         """Create the appropriate trigger based on schedule mode.
@@ -138,8 +135,7 @@ class BackupScheduler:
         from ui.console import print_scheduler_info
 
         if not self.settings.backup_schedule_enabled:
-            logger.warning("Scheduler is disabled in configuration")
-            console.print("[yellow]Scheduler is disabled. Use --now to run immediately.[/]")
+            backup_logger.warning("Scheduler is disabled in configuration")
             return
 
         # Check for missed backup on startup (only for cron mode)
@@ -149,7 +145,7 @@ class BackupScheduler:
                 self.settings.backup_schedule_minute,
             ):
                 console.print("[yellow]Missed scheduled backup detected, running now...[/]")
-                logger.info("Running missed backup on startup")
+                backup_logger.debug("Running missed backup on startup")
                 self._run_backup_with_state()
 
         # Create trigger based on mode
@@ -169,7 +165,7 @@ class BackupScheduler:
             # Setup signal handlers inside context
             def signal_handler(signum, frame):
                 signal_name = signal.Signals(signum).name
-                logger.info(f"Received {signal_name}, stopping scheduler...")
+                backup_logger.debug(f"Received {signal_name}, stopping scheduler...")
 
                 # Notify the shutdown handler (for backup in progress)
                 shutdown_handler.request_shutdown(signum, frame)
@@ -196,7 +192,7 @@ class BackupScheduler:
                 if schedule and schedule.next_fire_time:
                     next_time = schedule.next_fire_time.strftime("%Y-%m-%d %H:%M:%S")
                     console.print(f"[dim]Next backup:[/] [cyan]{next_time}[/]\n")
-                    logger.info(f"Next backup scheduled for: {next_time}")
+                    backup_logger.debug(f"Next backup scheduled for: {next_time}")
             except Exception:
                 pass  # Ignore if we can't get schedule info
 
@@ -204,7 +200,7 @@ class BackupScheduler:
             try:
                 scheduler.run_until_stopped()
             except (KeyboardInterrupt, SystemExit):
-                logger.info("Scheduler stopped")
+                backup_logger.debug("Scheduler stopped")
 
 
 def setup_scheduler(settings: Settings, backup_func: Callable[[], bool]) -> BackupScheduler:

@@ -2,21 +2,29 @@
 GitHub Backup - GitHub Client Module
 
 Provides a wrapper around PyGithub for fetching repositories and their metadata.
+
+Supports two modes:
+- Authenticated: With GITHUB_PAT - access to private repos, 5000 requests/hour
+- Unauthenticated: Without GITHUB_PAT - public repos only, 60 requests/hour
 """
 
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Generator, Optional
+from typing import Generator, Optional, Union
 
 from github import Github, GithubException
 from github.Repository import Repository
 from github.Organization import Organization
 from github.AuthenticatedUser import AuthenticatedUser
+from github.NamedUser import NamedUser
 
 from config import Settings
 
 logger = logging.getLogger(__name__)
+
+# Type alias for owner objects
+OwnerType = Union[Organization, AuthenticatedUser, NamedUser]
 
 
 @dataclass
@@ -49,7 +57,12 @@ class RepoInfo:
 
 
 class GitHubBackupClient:
-    """Client for interacting with GitHub API for backup operations."""
+    """Client for interacting with GitHub API for backup operations.
+
+    Supports two modes:
+    - Authenticated (with PAT): Private repos, 5000 req/hour, metadata access
+    - Unauthenticated (no PAT): Public repos only, 60 req/hour
+    """
 
     def __init__(self, settings: Settings):
         """Initialize the GitHub client.
@@ -57,51 +70,88 @@ class GitHubBackupClient:
         Args:
             settings: Application settings containing GitHub credentials.
         """
-        self.gh = Github(settings.github_pat)
         self.settings = settings
-        self._owner: Optional[Organization | AuthenticatedUser] = None
+        self._authenticated = settings.is_authenticated
+
+        if self._authenticated:
+            self.gh = Github(settings.github_pat)
+            logger.info("GitHub client initialized with authentication (5000 req/hour)")
+        else:
+            self.gh = Github()  # Unauthenticated
+            logger.warning(
+                "GitHub client initialized WITHOUT authentication. "
+                "Only public repositories accessible (60 req/hour rate limit). "
+                "Set GITHUB_PAT for private repos and higher rate limits."
+            )
+
+        self._owner: Optional[OwnerType] = None
 
     @property
-    def owner(self) -> Organization | AuthenticatedUser:
+    def is_authenticated(self) -> bool:
+        """Check if client is running in authenticated mode."""
+        return self._authenticated
+
+    @property
+    def owner(self) -> OwnerType:
         """Get the owner (organization or user) to backup."""
         if self._owner is None:
             self._owner = self._resolve_owner()
         return self._owner
 
-    def _resolve_owner(self) -> Organization | AuthenticatedUser:
+    def get_rate_limit_info(self) -> dict:
+        """Get current rate limit information.
+
+        Returns:
+            Dict with 'limit', 'remaining', 'reset' keys.
+        """
+        rate = self.gh.get_rate_limit()
+        return {
+            "limit": rate.core.limit,
+            "remaining": rate.core.remaining,
+            "reset": rate.core.reset.isoformat() if rate.core.reset else None,
+        }
+
+    def _resolve_owner(self) -> OwnerType:
         """Resolve the owner name to an Organization or User object.
 
-        For private repository access:
-        - Organizations: Uses get_repos(type="all") in get_repositories()
-        - Users: Must use AuthenticatedUser (get_user() without args)
-          NamedUser (get_user(name)) only sees public repositories!
+        Resolution order:
+        1. Try as organization
+        2. If authenticated and owner matches PAT owner: AuthenticatedUser (private repos)
+        3. Fall back to NamedUser (public repos only)
         """
         owner_name = self.settings.github_owner
 
         # Try as organization first
         try:
             org = self.gh.get_organization(owner_name)
-            logger.info(f"Resolved '{owner_name}' as organization")
+            if self._authenticated:
+                logger.info(f"Resolved '{owner_name}' as organization (private repos accessible)")
+            else:
+                logger.info(f"Resolved '{owner_name}' as organization (public repos only)")
             return org
         except GithubException:
             pass
 
-        # Check if owner is the authenticated user (required for private repo access)
-        try:
-            authenticated_user = self.gh.get_user()  # No args = AuthenticatedUser
-            if authenticated_user.login.lower() == owner_name.lower():
-                logger.info(f"Resolved '{owner_name}' as authenticated user (private repos accessible)")
-                return authenticated_user
-        except GithubException:
-            pass
+        # If authenticated, check if owner matches the PAT owner
+        if self._authenticated:
+            try:
+                authenticated_user = self.gh.get_user()  # No args = AuthenticatedUser
+                if authenticated_user.login.lower() == owner_name.lower():
+                    logger.info(f"Resolved '{owner_name}' as authenticated user (private repos accessible)")
+                    return authenticated_user
+            except GithubException:
+                pass
 
         # Fall back to named user (only public repos visible)
         try:
             user = self.gh.get_user(owner_name)
-            logger.warning(
-                f"Resolved '{owner_name}' as named user (only public repos accessible). "
-                f"For private repos, ensure GITHUB_OWNER matches your PAT owner."
-            )
+            if self._authenticated:
+                logger.warning(
+                    f"Resolved '{owner_name}' as named user (only public repos accessible). "
+                    f"For private repos, ensure GITHUB_OWNER matches your PAT owner."
+                )
+            else:
+                logger.info(f"Resolved '{owner_name}' as user (public repos only, no PAT configured)")
             return user
         except GithubException as e:
             raise ValueError(f"Could not find organization or user: {owner_name}") from e
@@ -150,17 +200,21 @@ class GitHubBackupClient:
         return True
 
     def get_clone_url(self, repo_info: RepoInfo) -> str:
-        """Get the clone URL for a repository with authentication.
+        """Get the clone URL for a repository.
+
+        For private repos with authentication, embeds the PAT in the URL.
+        For public repos, returns the plain URL.
 
         Args:
             repo_info: Repository information.
 
         Returns:
-            Clone URL with embedded PAT for authentication.
+            Clone URL (with embedded PAT for authenticated private repos).
         """
         clone_url = repo_info.repo.clone_url
-        # Use HTTPS URL with embedded token for private repos
-        if repo_info.private:
+
+        # Use HTTPS URL with embedded token for private repos (requires auth)
+        if repo_info.private and self._authenticated:
             return clone_url.replace(
                 "https://",
                 f"https://{self.settings.github_pat}@"
@@ -180,7 +234,9 @@ class GitHubBackupClient:
             return None
 
         wiki_url = repo_info.repo.clone_url.replace(".git", ".wiki.git")
-        if repo_info.private:
+
+        # Use embedded token for private repos (requires auth)
+        if repo_info.private and self._authenticated:
             wiki_url = wiki_url.replace(
                 "https://",
                 f"https://{self.settings.github_pat}@"

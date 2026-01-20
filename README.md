@@ -478,6 +478,59 @@ S3_REGION=auto
 
 ---
 
+## Authentication Modes
+
+The backup system supports two authentication modes:
+
+| Mode | GITHUB_PAT | Capabilities |
+|------|------------|--------------|
+| **Authenticated** | Set (`ghp_xxx...`) | Private + public repos, 5000 requests/hour, full metadata |
+| **Unauthenticated** | Empty or not set | Public repos ONLY, 60 requests/hour, basic metadata |
+
+### Authenticated Mode (Recommended)
+
+With a GitHub Personal Access Token configured, you get:
+
+- Access to **private repositories** (requires `repo` scope)
+- **5000 API requests/hour** rate limit
+- Full metadata export (issues, PRs, releases)
+- Wiki access for private repositories
+
+```env
+GITHUB_OWNER=my-organization
+GITHUB_PAT=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### Unauthenticated Mode (Public Repos Only)
+
+For backing up public repositories without authentication:
+
+- Access to **public repositories only**
+- **60 API requests/hour** rate limit
+- Useful for backing up open source projects
+
+```env
+GITHUB_OWNER=torvalds
+GITHUB_PAT=
+# or simply omit GITHUB_PAT
+```
+
+**Limitations in Unauthenticated Mode:**
+
+| Feature | Authenticated | Unauthenticated |
+|---------|---------------|-----------------|
+| Public repos | Yes | Yes |
+| Private repos | Yes | No |
+| Rate limit | 5000/hour | 60/hour |
+| Issues export | Full | May be limited |
+| PR export | Full | May be limited |
+| Releases export | Full | Full |
+| Wiki backup | Full | Public wikis only |
+
+> **Note:** In unauthenticated mode, some metadata exports may fail silently if the API restricts access. The backup will continue with a warning logged. For complete backups, authenticated mode is strongly recommended.
+
+---
+
 ## GitHub Token Setup
 
 ### Option 1: Fine-grained PAT (Recommended)
@@ -938,7 +991,6 @@ cat metadata/issues.json | jq '.[] | {number, title, state}'
 | Variable | Description |
 |----------|-------------|
 | `GITHUB_OWNER` | GitHub organization or username |
-| `GITHUB_PAT` | Personal Access Token |
 | `S3_ENDPOINT_URL` | S3-compatible endpoint |
 | `S3_BUCKET` | Target bucket name |
 | `S3_ACCESS_KEY` | S3 access key |
@@ -948,6 +1000,7 @@ cat metadata/issues.json | jq '.[] | {number, title, state}'
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `GITHUB_PAT` | (empty) | Personal Access Token (required for private repos) |
 | `GITHUB_BACKUP_PRIVATE` | `true` | Include private repositories |
 | `GITHUB_BACKUP_FORKS` | `false` | Include forked repositories |
 | `GITHUB_BACKUP_ARCHIVED` | `true` | Include archived repositories |

@@ -25,7 +25,8 @@ class Settings(BaseSettings):
         description="Organization or username to backup"
     )
     github_pat: str = Field(
-        description="Personal Access Token for GitHub API"
+        default="",
+        description="Personal Access Token for GitHub API (optional for public repos only)"
     )
     github_backup_private: bool = Field(
         default=True,
@@ -228,6 +229,11 @@ class Settings(BaseSettings):
         if not self.smtp_to:
             return []
         return [r.strip() for r in self.smtp_to.split(",") if r.strip()]
+
+    @property
+    def is_authenticated(self) -> bool:
+        """Check if GitHub PAT is configured for authenticated access."""
+        return bool(self.github_pat and self.github_pat.strip())
 
     # === Application Configuration ===
     tz: str = Field(

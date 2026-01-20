@@ -1,0 +1,10 @@
+Defaulting to user installation because normal site-packages is not writeable
+Requirement already satisfied: minio in c:\users\karl.bauer\appdata\roaming\python\python313\site-packages (7.2.20)
+Requirement already satisfied: argon2-cffi in c:\users\karl.bauer\appdata\roaming\python\python313\site-packages (from minio) (25.1.0)
+Requirement already satisfied: certifi in c:\users\karl.bauer\appdata\roaming\python\python313\site-packages (from minio) (2025.8.3)
+Requirement already satisfied: pycryptodome in c:\users\karl.bauer\appdata\roaming\python\python313\site-packages (from minio) (3.23.0)
+Requirement already satisfied: typing-extensions in c:\users\karl.bauer\appdata\roaming\python\python313\site-packages (from minio) (4.14.1)
+Requirement already satisfied: urllib3 in c:\users\karl.bauer\appdata\roaming\python\python313\site-packages (from minio) (2.5.0)
+Requirement already satisfied: argon2-cffi-bindings in c:\users\karl.bauer\appdata\roaming\python\python313\site-packages (from argon2-cffi->minio) (25.1.0)
+Requirement already satisfied: cffi>=1.0.1 in c:\users\karl.bauer\appdata\roaming\python\python313\site-packages (from argon2-cffi-bindings->argon2-cffi->minio) (1.17.1)
+Requirement already satisfied: pycparser in c:\users\karl.bauer\appdata\roaming\python\python313\site-packages (from cffi>=1.0.1->argon2-cffi-bindings->argon2-cffi->minio) (2.22)

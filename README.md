@@ -222,7 +222,44 @@ Choose your storage provider and follow the setup guide.
 
 ### MinIO (Self-Hosted)
 
-#### Step 1: Create a Bucket
+#### Automated Setup (Recommended)
+
+Use the included setup script to create bucket, policy, group, and user automatically:
+
+```bash
+# Install dependencies
+pip install -r tools/requirements.txt
+
+# Run setup (uses .env or defaults)
+python tools/setup-bucket.py \
+  --endpoint https://minio.example.com \
+  --admin-key minioadmin \
+  --admin-secret minioadmin
+
+# Custom names
+python tools/setup-bucket.py \
+  --bucket my-backups \
+  --policy pMyBackups \
+  --group gMyBackups \
+  --user my-backup-user
+```
+
+The script creates:
+
+| Resource | Default Name | Purpose |
+|----------|--------------|---------|
+| Bucket | `github-backups` | Storage for backup files |
+| Policy | `pGitHubBackups` | Permissions for bucket access |
+| Group | `gGitHubBackups` | Group with policy attached |
+| User | `github-backups` | Service account with access key |
+
+Credentials are printed to console and written to `.env`.
+
+See [tools/README.md](tools/README.md) for full documentation.
+
+#### Manual Setup
+
+**Step 1: Create a Bucket**
 
 ```bash
 # Using MinIO Client (mc)
@@ -231,24 +268,27 @@ mc mb myminio/github-backups
 ```
 
 Or via MinIO Console:
+
 1. Open MinIO Console (usually `https://minio.example.com:9001`)
 2. Navigate to **Buckets** → **Create Bucket**
 3. Enter bucket name: `github-backups`
 4. Click **Create Bucket**
 
-#### Step 2: Create Access Credentials
+**Step 2: Create Access Credentials**
 
 Via MinIO Console:
+
 1. Navigate to **Access Keys** → **Create Access Key**
 2. Click **Create**
 3. Copy **Access Key** and **Secret Key**
 
 Or create a dedicated service account:
+
 1. Navigate to **Identity** → **Users** → **Create User**
 2. Username: `github-backup`
-3. Assign policy: `readwrite` (or create custom policy below)
+3. Assign policy: Use custom policy below
 
-#### Step 3: Configure .env
+**Step 3: Configure .env**
 
 ```env
 S3_ENDPOINT_URL=https://minio.example.com
@@ -258,9 +298,9 @@ S3_SECRET_KEY=your-secret-key
 S3_REGION=us-east-1
 ```
 
-#### Optional: Custom MinIO Policy
+**Step 4: Custom MinIO Policy**
 
-Create a policy with minimum required permissions:
+Create a policy with minimum required permissions (including multipart upload):
 
 ```json
 {
@@ -270,7 +310,8 @@ Create a policy with minimum required permissions:
       "Effect": "Allow",
       "Action": [
         "s3:GetBucketLocation",
-        "s3:ListBucket"
+        "s3:ListBucket",
+        "s3:ListBucketMultipartUploads"
       ],
       "Resource": "arn:aws:s3:::github-backups"
     },
@@ -279,13 +320,17 @@ Create a policy with minimum required permissions:
       "Action": [
         "s3:GetObject",
         "s3:PutObject",
-        "s3:DeleteObject"
+        "s3:DeleteObject",
+        "s3:ListMultipartUploadParts",
+        "s3:AbortMultipartUpload"
       ],
       "Resource": "arn:aws:s3:::github-backups/*"
     }
   ]
 }
 ```
+
+> **Note:** Multipart upload permissions are required for large repository bundles (>100MB).
 
 ---
 

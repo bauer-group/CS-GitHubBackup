@@ -49,16 +49,13 @@ class GitBackup:
 
         logger.debug(f"Cloning {repo_name} as mirror...")
 
-        try:
-            Repo.clone_from(
-                repo_url,
-                str(mirror_path),
-                mirror=True,
-                env={"GIT_TERMINAL_PROMPT": "0"}
-            )
-        except GitCommandError as e:
-            logger.error(f"Failed to clone {repo_name}: {e}")
-            raise
+        # Clone - let caller handle logging for failures
+        Repo.clone_from(
+            repo_url,
+            str(mirror_path),
+            mirror=True,
+            env={"GIT_TERMINAL_PROMPT": "0"}
+        )
 
         return mirror_path
 

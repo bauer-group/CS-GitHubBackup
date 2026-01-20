@@ -50,7 +50,7 @@ class TestSettings:
         assert settings.backup_include_wiki is True
         assert settings.backup_incremental is True
         assert settings.backup_schedule_enabled is True
-        assert settings.backup_schedule_mode == "daily"
+        assert settings.backup_schedule_mode == "cron"
         assert settings.backup_schedule_hour == 2
         assert settings.backup_schedule_minute == 0
         assert settings.s3_region == "us-east-1"
@@ -210,7 +210,7 @@ class TestSettings:
 
     def test_schedule_mode_options(self, temp_dir):
         """Test that only valid schedule modes are accepted."""
-        for mode in ["daily", "weekly", "interval"]:
+        for mode in ["cron", "interval"]:
             settings = Settings(
                 github_owner="test",
                 github_pat="test",

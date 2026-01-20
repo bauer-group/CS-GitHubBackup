@@ -1,7 +1,7 @@
 """
 GitHub Backup - Scheduler Module
 
-Provides scheduled backup execution using APScheduler with state persistence.
+Provides scheduled backup execution using APScheduler v4 with state persistence.
 """
 
 import logging
@@ -9,10 +9,9 @@ import signal
 import sys
 from typing import Callable
 
-from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler import Scheduler, Event, JobReleased
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
 
 from config import Settings
 from sync_state_manager import SyncStateManager
@@ -33,20 +32,8 @@ class BackupScheduler:
         """
         self.settings = settings
         self.backup_func = backup_func
-        self.scheduler = BlockingScheduler()
+        self.scheduler: Scheduler | None = None
         self.state_manager = SyncStateManager(settings.data_dir)
-        self._setup_signal_handlers()
-
-    def _setup_signal_handlers(self) -> None:
-        """Setup graceful shutdown handlers."""
-        def signal_handler(signum, frame):
-            logger.info("Received shutdown signal, stopping scheduler...")
-            console.print("\n[yellow]Shutting down scheduler...[/]")
-            self.scheduler.shutdown(wait=False)
-            sys.exit(0)
-
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
 
     def _run_backup_with_state(self) -> None:
         """Run backup and update sync state on success."""
@@ -59,17 +46,18 @@ class BackupScheduler:
             logger.error(f"Backup execution failed: {e}")
             raise
 
-    def _job_listener(self, event: JobExecutionEvent) -> None:
+    def _job_listener(self, event: Event) -> None:
         """Handle job execution events.
 
         Args:
             event: Job execution event.
         """
-        if event.exception:
-            logger.error(f"Backup job failed: {event.exception}")
-            console.print(f"[red]Backup job failed: {event.exception}[/]")
-        else:
-            logger.info("Backup job completed successfully")
+        if isinstance(event, JobReleased):
+            if event.outcome and event.outcome.name == "error":
+                logger.error(f"Backup job failed")
+                console.print(f"[red]Backup job failed[/]")
+            else:
+                logger.info("Backup job completed successfully")
 
     def _create_trigger(self):
         """Create the appropriate trigger based on schedule mode.
@@ -133,7 +121,7 @@ class BackupScheduler:
             console.print("[yellow]Scheduler is disabled. Use --now to run immediately.[/]")
             return
 
-        # Check for missed backup on startup (only for daily/weekly modes)
+        # Check for missed backup on startup (only for cron mode)
         if self.settings.backup_schedule_mode != "interval":
             if self.state_manager.should_run_backup(
                 self.settings.backup_schedule_hour,
@@ -146,34 +134,46 @@ class BackupScheduler:
         # Create trigger based on mode
         trigger = self._create_trigger()
 
-        self.scheduler.add_job(
-            self._run_backup_with_state,
-            trigger,
-            id="github_backup",
-            name="GitHub Backup",
-            replace_existing=True,
-        )
-
-        # Add event listener
-        self.scheduler.add_listener(
-            self._job_listener,
-            EVENT_JOB_EXECUTED | EVENT_JOB_ERROR,
-        )
-
         # Print scheduler info
         schedule_desc = self._get_schedule_description()
         print_scheduler_info(schedule_desc)
 
-        # Log next run time
-        job = self.scheduler.get_job("github_backup")
-        if job and job.next_run_time:
-            logger.info(f"Next backup scheduled for: {job.next_run_time}")
+        # Use context manager for scheduler
+        with Scheduler() as scheduler:
+            self.scheduler = scheduler
 
-        # Start the scheduler (blocks)
-        try:
-            self.scheduler.start()
-        except (KeyboardInterrupt, SystemExit):
-            logger.info("Scheduler stopped")
+            # Setup signal handlers inside context
+            def signal_handler(signum, frame):
+                logger.info("Received shutdown signal, stopping scheduler...")
+                console.print("\n[yellow]Shutting down scheduler...[/]")
+                scheduler.stop()
+
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+
+            # Subscribe to job events
+            scheduler.subscribe(self._job_listener, {JobReleased})
+
+            # Add schedule
+            schedule_id = scheduler.add_schedule(
+                self._run_backup_with_state,
+                trigger,
+                id="github_backup",
+            )
+
+            # Log next run time
+            try:
+                schedule = scheduler.get_schedule(schedule_id)
+                if schedule and schedule.next_fire_time:
+                    logger.info(f"Next backup scheduled for: {schedule.next_fire_time}")
+            except Exception:
+                pass  # Ignore if we can't get schedule info
+
+            # Start the scheduler (blocks)
+            try:
+                scheduler.run_until_stopped()
+            except (KeyboardInterrupt, SystemExit):
+                logger.info("Scheduler stopped")
 
 
 def setup_scheduler(settings: Settings, backup_func: Callable[[], bool]) -> BackupScheduler:

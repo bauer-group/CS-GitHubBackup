@@ -1,0 +1,3 @@
+# Dependencies for setup scripts
+boto3>=1.34.0
+rich>=13.7.0

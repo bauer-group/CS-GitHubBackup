@@ -123,6 +123,10 @@ class Settings(BaseSettings):
         default="us-east-1",
         description="S3 region"
     )
+    s3_prefix: str = Field(
+        default="",
+        description="Optional prefix/folder in S3 bucket (empty = store directly under {owner}/)"
+    )
     s3_multipart_threshold: int = Field(
         default=100 * 1024 * 1024,
         description="File size threshold for multipart upload in bytes (default: 100MB)"

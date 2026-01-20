@@ -57,8 +57,8 @@ class TestS3Storage:
         # Upload
         key = storage.upload_file(test_file, "2024-01-15_02-00-00", "test-repo")
 
-        # Key includes owner prefix: github-backup/{owner}/{backup_id}/{repo}/{file}
-        assert key == "github-backup/test-org/2024-01-15_02-00-00/test-repo/test.bundle"
+        # Key structure: {owner}/{backup_id}/{repo}/{file} (s3_prefix is empty by default)
+        assert key == "test-org/2024-01-15_02-00-00/test-repo/test.bundle"
 
         # Verify upload
         response = storage.s3.get_object(Bucket=test_settings.s3_bucket, Key=key)
@@ -84,7 +84,7 @@ class TestS3Storage:
         # Verify uploads (includes owner in prefix)
         response = storage.s3.list_objects_v2(
             Bucket=test_settings.s3_bucket,
-            Prefix="github-backup/test-org/2024-01-15_02-00-00/test-repo/",
+            Prefix="test-org/2024-01-15_02-00-00/test-repo/",
         )
         keys = [obj["Key"] for obj in response.get("Contents", [])]
         assert len(keys) == 2
@@ -100,7 +100,7 @@ class TestS3Storage:
         for backup_id in backups:
             storage.s3.put_object(
                 Bucket=test_settings.s3_bucket,
-                Key=f"github-backup/test-org/{backup_id}/repo/test.bundle",
+                Key=f"test-org/{backup_id}/repo/test.bundle",
                 Body=b"content",
             )
 
@@ -122,7 +122,7 @@ class TestS3Storage:
         for f in files:
             storage.s3.put_object(
                 Bucket=test_settings.s3_bucket,
-                Key=f"github-backup/test-org/{backup_id}/{f}",
+                Key=f"test-org/{backup_id}/{f}",
                 Body=b"content",
             )
 
@@ -134,7 +134,7 @@ class TestS3Storage:
         # Verify deletion
         response = storage.s3.list_objects_v2(
             Bucket=test_settings.s3_bucket,
-            Prefix=f"github-backup/test-org/{backup_id}/",
+            Prefix=f"test-org/{backup_id}/",
         )
         assert response.get("KeyCount", 0) == 0
 
@@ -156,7 +156,7 @@ class TestS3Storage:
         for backup_id in backups:
             storage.s3.put_object(
                 Bucket=test_settings.s3_bucket,
-                Key=f"github-backup/test-org/{backup_id}/repo/test.bundle",
+                Key=f"test-org/{backup_id}/repo/test.bundle",
                 Body=b"content",
             )
 
@@ -187,7 +187,7 @@ class TestS3Storage:
         for backup_id in backups:
             storage.s3.put_object(
                 Bucket=test_settings.s3_bucket,
-                Key=f"github-backup/test-org/{backup_id}/repo/test.bundle",
+                Key=f"test-org/{backup_id}/repo/test.bundle",
                 Body=b"content",
             )
 
@@ -214,12 +214,12 @@ class TestS3Storage:
         # Create files with known sizes (with owner prefix)
         storage.s3.put_object(
             Bucket=test_settings.s3_bucket,
-            Key=f"github-backup/test-org/{backup_id}/repo/test.bundle",
+            Key=f"test-org/{backup_id}/repo/test.bundle",
             Body=b"x" * 1000,  # 1000 bytes
         )
         storage.s3.put_object(
             Bucket=test_settings.s3_bucket,
-            Key=f"github-backup/test-org/{backup_id}/repo/metadata.json",
+            Key=f"test-org/{backup_id}/repo/metadata.json",
             Body=b"y" * 500,  # 500 bytes
         )
 

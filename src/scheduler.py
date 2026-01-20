@@ -63,6 +63,23 @@ class BackupScheduler:
             else:
                 logger.info("Backup job completed successfully")
 
+            # Show next run time
+            self._print_next_run_time()
+
+    def _print_next_run_time(self) -> None:
+        """Print the next scheduled run time to the console."""
+        if not self.scheduler:
+            return
+
+        try:
+            schedule = self.scheduler.get_schedule("github_backup")
+            if schedule and schedule.next_fire_time:
+                next_time = schedule.next_fire_time.strftime("%Y-%m-%d %H:%M:%S")
+                console.print(f"\n[dim]Next backup scheduled for:[/] [cyan]{next_time}[/]")
+                logger.info(f"Next backup scheduled for: {next_time}")
+        except Exception as e:
+            logger.debug(f"Could not get next run time: {e}")
+
     def _create_trigger(self):
         """Create the appropriate trigger based on schedule mode.
 
@@ -165,11 +182,13 @@ class BackupScheduler:
                 id="github_backup",
             )
 
-            # Log next run time
+            # Show next run time
             try:
                 schedule = scheduler.get_schedule(schedule_id)
                 if schedule and schedule.next_fire_time:
-                    logger.info(f"Next backup scheduled for: {schedule.next_fire_time}")
+                    next_time = schedule.next_fire_time.strftime("%Y-%m-%d %H:%M:%S")
+                    console.print(f"[dim]Next backup:[/] [cyan]{next_time}[/]\n")
+                    logger.info(f"Next backup scheduled for: {next_time}")
             except Exception:
                 pass  # Ignore if we can't get schedule info
 

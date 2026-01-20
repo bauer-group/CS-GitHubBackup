@@ -250,8 +250,9 @@ def run_backup(settings: Settings) -> bool:
         print_completion(success)
 
         # Send alerts
+        alert_results = {}
         if success:
-            alert_manager.send_backup_success(
+            alert_results = alert_manager.send_backup_success(
                 backup_id=backup_id,
                 stats=stats,
                 duration_seconds=duration,
@@ -259,7 +260,7 @@ def run_backup(settings: Settings) -> bool:
             )
         elif stats["repos"] > 0:
             # Partial success with some errors
-            alert_manager.send_backup_warning(
+            alert_results = alert_manager.send_backup_warning(
                 backup_id=backup_id,
                 stats=stats,
                 duration_seconds=duration,
@@ -268,7 +269,7 @@ def run_backup(settings: Settings) -> bool:
             )
         else:
             # All repositories failed
-            alert_manager.send_backup_error(
+            alert_results = alert_manager.send_backup_error(
                 backup_id=backup_id,
                 error_message="All repository backups failed",
                 stats=stats,
@@ -276,6 +277,14 @@ def run_backup(settings: Settings) -> bool:
                 error_messages=error_messages,
                 github_owner=settings.github_owner,
             )
+
+        # Show alert results if any alerts were configured
+        if alert_results:
+            for channel, sent in alert_results.items():
+                if sent:
+                    console.print(f"[green]Alert sent via {channel}[/]")
+                else:
+                    console.print(f"[red]Alert failed via {channel}[/]")
 
         return success
 

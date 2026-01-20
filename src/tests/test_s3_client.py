@@ -57,8 +57,8 @@ class TestS3Storage:
         # Upload
         key = storage.upload_file(test_file, "2024-01-15_02-00-00", "test-repo")
 
-        # Key structure: {owner}/{backup_id}/{repo}/{file} (s3_prefix is empty by default)
-        assert key == "test-org/2024-01-15_02-00-00/test-repo/test.bundle"
+        # Key structure: {owner}/{repo}/{backup_id}/{file} (s3_prefix is empty by default)
+        assert key == "test-org/test-repo/2024-01-15_02-00-00/test.bundle"
 
         # Verify upload
         response = storage.s3.get_object(Bucket=test_settings.s3_bucket, Key=key)
@@ -84,7 +84,7 @@ class TestS3Storage:
         # Verify uploads (includes owner in prefix)
         response = storage.s3.list_objects_v2(
             Bucket=test_settings.s3_bucket,
-            Prefix="test-org/2024-01-15_02-00-00/test-repo/",
+            Prefix="test-org/test-repo/2024-01-15_02-00-00/",
         )
         keys = [obj["Key"] for obj in response.get("Contents", [])]
         assert len(keys) == 2
@@ -95,12 +95,12 @@ class TestS3Storage:
         storage = S3Storage(test_settings)
         storage.s3.create_bucket(Bucket=test_settings.s3_bucket)
 
-        # Create some backup folders (with owner prefix)
+        # Create some backup folders (with owner/repo/backup_id structure)
         backups = ["2024-01-03_02-00-00", "2024-01-01_02-00-00", "2024-01-02_02-00-00"]
         for backup_id in backups:
             storage.s3.put_object(
                 Bucket=test_settings.s3_bucket,
-                Key=f"test-org/{backup_id}/repo/test.bundle",
+                Key=f"test-org/repo/{backup_id}/test.bundle",
                 Body=b"content",
             )
 
@@ -116,13 +116,17 @@ class TestS3Storage:
         storage = S3Storage(test_settings)
         storage.s3.create_bucket(Bucket=test_settings.s3_bucket)
 
-        # Create backup with multiple files (with owner prefix)
+        # Create backup with multiple files (with owner/repo/backup_id structure)
         backup_id = "2024-01-15_02-00-00"
-        files = ["repo1/test.bundle", "repo2/test.bundle", "repo1/metadata/issues.json"]
-        for f in files:
+        files = [
+            f"test-org/repo1/{backup_id}/test.bundle",
+            f"test-org/repo2/{backup_id}/test.bundle",
+            f"test-org/repo1/{backup_id}/metadata/issues.json",
+        ]
+        for key in files:
             storage.s3.put_object(
                 Bucket=test_settings.s3_bucket,
-                Key=f"test-org/{backup_id}/{f}",
+                Key=key,
                 Body=b"content",
             )
 
@@ -131,12 +135,13 @@ class TestS3Storage:
 
         assert deleted == 3
 
-        # Verify deletion
-        response = storage.s3.list_objects_v2(
-            Bucket=test_settings.s3_bucket,
-            Prefix=f"test-org/{backup_id}/",
-        )
-        assert response.get("KeyCount", 0) == 0
+        # Verify deletion - check both repos
+        for repo in ["repo1", "repo2"]:
+            response = storage.s3.list_objects_v2(
+                Bucket=test_settings.s3_bucket,
+                Prefix=f"test-org/{repo}/{backup_id}/",
+            )
+            assert response.get("KeyCount", 0) == 0
 
     @mock_aws
     def test_cleanup_old_backups_respects_retention(self, test_settings: Settings):
@@ -145,7 +150,7 @@ class TestS3Storage:
         storage = S3Storage(test_settings)
         storage.s3.create_bucket(Bucket=test_settings.s3_bucket)
 
-        # Create 5 backups (with owner prefix)
+        # Create 5 backups (with owner/repo/backup_id structure)
         backups = [
             "2024-01-01_02-00-00",
             "2024-01-02_02-00-00",
@@ -156,7 +161,7 @@ class TestS3Storage:
         for backup_id in backups:
             storage.s3.put_object(
                 Bucket=test_settings.s3_bucket,
-                Key=f"test-org/{backup_id}/repo/test.bundle",
+                Key=f"test-org/repo/{backup_id}/test.bundle",
                 Body=b"content",
             )
 
@@ -177,7 +182,7 @@ class TestS3Storage:
         storage = S3Storage(test_settings)
         storage.s3.create_bucket(Bucket=test_settings.s3_bucket)
 
-        # Create 4 backups (with owner prefix)
+        # Create 4 backups (with owner/repo/backup_id structure)
         backups = [
             "2024-01-01_02-00-00",
             "2024-01-02_02-00-00",
@@ -187,7 +192,7 @@ class TestS3Storage:
         for backup_id in backups:
             storage.s3.put_object(
                 Bucket=test_settings.s3_bucket,
-                Key=f"test-org/{backup_id}/repo/test.bundle",
+                Key=f"test-org/repo/{backup_id}/test.bundle",
                 Body=b"content",
             )
 
@@ -211,15 +216,15 @@ class TestS3Storage:
         storage.s3.create_bucket(Bucket=test_settings.s3_bucket)
 
         backup_id = "2024-01-15_02-00-00"
-        # Create files with known sizes (with owner prefix)
+        # Create files with known sizes (with owner/repo/backup_id structure)
         storage.s3.put_object(
             Bucket=test_settings.s3_bucket,
-            Key=f"test-org/{backup_id}/repo/test.bundle",
+            Key=f"test-org/repo/{backup_id}/test.bundle",
             Body=b"x" * 1000,  # 1000 bytes
         )
         storage.s3.put_object(
             Bucket=test_settings.s3_bucket,
-            Key=f"test-org/{backup_id}/repo/metadata.json",
+            Key=f"test-org/repo/{backup_id}/metadata.json",
             Body=b"y" * 500,  # 500 bytes
         )
 

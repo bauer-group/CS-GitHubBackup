@@ -134,9 +134,10 @@ class S3Storage:
         self.retention = settings.backup_retention_count
         self.owner = settings.github_owner
 
-        # Prefix structure: {s3_prefix}/{owner}/{backup_id}/{repo_name}/
-        # s3_prefix is optional - if empty, structure is {owner}/{backup_id}/{repo_name}/
+        # Prefix structure: {s3_prefix}/{owner}/{repo_name}/{backup_id}/
+        # s3_prefix is optional - if empty, structure is {owner}/{repo_name}/{backup_id}/
         # This allows multiple orgs/users to share the same bucket
+        # and enables logical browsing: owner -> repo -> backup history
         if settings.s3_prefix:
             self.prefix = f"{settings.s3_prefix}/{self.owner}"
         else:
@@ -179,7 +180,7 @@ class S3Storage:
         Returns:
             S3 key of the uploaded file.
         """
-        key = f"{self.prefix}/{backup_id}/{repo_name}/{local_path.name}"
+        key = f"{self.prefix}/{repo_name}/{backup_id}/{local_path.name}"
 
         logger.debug(f"Uploading {local_path.name} to s3://{self.bucket}/{key}")
 
@@ -205,7 +206,7 @@ class S3Storage:
         for file_path in local_dir.rglob("*"):
             if file_path.is_file():
                 relative_path = file_path.relative_to(local_dir)
-                key = f"{self.prefix}/{backup_id}/{repo_name}/{relative_path}"
+                key = f"{self.prefix}/{repo_name}/{backup_id}/{relative_path}"
 
                 try:
                     self.s3.upload_file(str(file_path), self.bucket, key)
@@ -215,11 +216,11 @@ class S3Storage:
 
         return count
 
-    def list_backups(self) -> list[str]:
-        """List all backup folders in the bucket.
+    def list_repos(self) -> list[str]:
+        """List all repository folders in the bucket.
 
         Returns:
-            List of backup IDs (folder names) sorted newest first.
+            List of repository names.
         """
         try:
             response = self.s3.list_objects_v2(
@@ -228,29 +229,61 @@ class S3Storage:
                 Delimiter="/",
             )
 
-            # Extract backup IDs from common prefixes
-            # Prefix structure varies based on s3_prefix setting:
-            # - With s3_prefix: "{s3_prefix}/{owner}/YYYY-MM-DD_HH-MM-SS/"
-            # - Without s3_prefix: "{owner}/YYYY-MM-DD_HH-MM-SS/"
             prefix_parts_count = len(self.prefix.split("/"))
-            prefixes = []
+            repos = []
             for prefix_obj in response.get("CommonPrefixes", []):
                 prefix = prefix_obj.get("Prefix", "")
                 parts = prefix.strip("/").split("/")
-                # Backup ID is the part after the base prefix (owner or prefix/owner)
                 if len(parts) > prefix_parts_count:
-                    prefixes.append(parts[prefix_parts_count])
+                    repo_name = parts[prefix_parts_count]
+                    # Skip state.json (it's at prefix level, not a repo)
+                    if repo_name != "state.json":
+                        repos.append(repo_name)
+
+            return sorted(repos)
+
+        except ClientError as e:
+            logger.error(f"Failed to list repos: {e}")
+            return []
+
+    def list_backups(self) -> list[str]:
+        """List all backup IDs across all repositories.
+
+        Scans all repos and collects unique backup IDs.
+
+        Returns:
+            List of backup IDs (folder names) sorted newest first.
+        """
+        try:
+            repos = self.list_repos()
+            backup_ids: set[str] = set()
+
+            # Collect backup IDs from all repos
+            for repo in repos:
+                response = self.s3.list_objects_v2(
+                    Bucket=self.bucket,
+                    Prefix=f"{self.prefix}/{repo}/",
+                    Delimiter="/",
+                )
+
+                for prefix_obj in response.get("CommonPrefixes", []):
+                    prefix = prefix_obj.get("Prefix", "")
+                    parts = prefix.strip("/").split("/")
+                    # Backup ID is the last part: {prefix}/{repo}/{backup_id}/
+                    if parts:
+                        backup_ids.add(parts[-1])
 
             # Sort by date (newest first)
-            prefixes.sort(reverse=True)
-            return prefixes
+            return sorted(backup_ids, reverse=True)
 
         except ClientError as e:
             logger.error(f"Failed to list backups: {e}")
             return []
 
     def delete_backup(self, backup_id: str) -> int:
-        """Delete a backup folder and all its contents.
+        """Delete a backup across all repositories.
+
+        Removes the backup_id folder from each repo that has it.
 
         Args:
             backup_id: Backup identifier to delete.
@@ -258,32 +291,35 @@ class S3Storage:
         Returns:
             Number of objects deleted.
         """
-        prefix = f"{self.prefix}/{backup_id}/"
+        repos = self.list_repos()
         deleted_count = 0
 
         try:
-            # List all objects with this prefix
-            paginator = self.s3.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=self.bucket, Prefix=prefix)
+            for repo in repos:
+                prefix = f"{self.prefix}/{repo}/{backup_id}/"
 
-            for page in pages:
-                objects = page.get("Contents", [])
-                if not objects:
-                    continue
+                # List all objects with this prefix
+                paginator = self.s3.get_paginator("list_objects_v2")
+                pages = paginator.paginate(Bucket=self.bucket, Prefix=prefix)
 
-                # Delete objects in batches of 1000
-                delete_keys = [{"Key": obj["Key"]} for obj in objects]
+                for page in pages:
+                    objects = page.get("Contents", [])
+                    if not objects:
+                        continue
 
-                response = self.s3.delete_objects(
-                    Bucket=self.bucket,
-                    Delete={"Objects": delete_keys, "Quiet": True},
-                )
+                    # Delete objects in batches of 1000
+                    delete_keys = [{"Key": obj["Key"]} for obj in objects]
 
-                deleted_count += len(delete_keys)
-                errors = response.get("Errors", [])
-                if errors:
-                    for error in errors:
-                        logger.warning(f"Failed to delete {error['Key']}: {error['Message']}")
+                    response = self.s3.delete_objects(
+                        Bucket=self.bucket,
+                        Delete={"Objects": delete_keys, "Quiet": True},
+                    )
+
+                    deleted_count += len(delete_keys)
+                    errors = response.get("Errors", [])
+                    if errors:
+                        for error in errors:
+                            logger.warning(f"Failed to delete {error['Key']}: {error['Message']}")
 
             logger.info(f"Deleted backup {backup_id} ({deleted_count} objects)")
             return deleted_count
@@ -369,20 +405,24 @@ class S3Storage:
     def get_backup_size(self, backup_id: str) -> int:
         """Get total size of a backup in bytes.
 
+        Sums sizes across all repos for the given backup_id.
+
         Args:
             backup_id: Backup identifier.
 
         Returns:
             Total size in bytes.
         """
-        prefix = f"{self.prefix}/{backup_id}/"
+        repos = self.list_repos()
         total_size = 0
 
         try:
             paginator = self.s3.get_paginator("list_objects_v2")
-            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
-                for obj in page.get("Contents", []):
-                    total_size += obj.get("Size", 0)
+            for repo in repos:
+                prefix = f"{self.prefix}/{repo}/{backup_id}/"
+                for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+                    for obj in page.get("Contents", []):
+                        total_size += obj.get("Size", 0)
         except ClientError:
             pass
 

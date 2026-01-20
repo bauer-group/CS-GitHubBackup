@@ -976,17 +976,22 @@ cat metadata/issues.json | jq '.[] | {number, title, state}'
 ```
 s3://bucket/{S3_PREFIX}/{GITHUB_OWNER}/
 ├── state.json                        # Sync state (for incremental backups)
-└── 2024-01-15_02-00-00/              # Backup timestamp
-    ├── repo-name/
-    │   ├── repo-name.bundle          # Git bundle (full history)
-    │   ├── repo-name.wiki.bundle     # Wiki bundle (if exists)
-    │   └── metadata/
-    │       ├── issues.json
-    │       ├── pull-requests.json
-    │       └── releases.json
-    └── another-repo/
+├── repo-name/                        # Repository folder
+│   ├── 2024-01-15_02-00-00/          # Backup timestamp
+│   │   ├── repo-name.bundle          # Git bundle (full history)
+│   │   ├── repo-name.wiki.bundle     # Wiki bundle (if exists)
+│   │   └── metadata/
+│   │       ├── issues.json
+│   │       ├── pull-requests.json
+│   │       └── releases.json
+│   └── 2024-01-14_02-00-00/          # Previous backup
+│       └── ...
+└── another-repo/
+    └── 2024-01-15_02-00-00/
         └── ...
 ```
+
+This structure allows logical browsing: **owner → repository → backup history**
 
 **S3 Prefix Configuration:**
 

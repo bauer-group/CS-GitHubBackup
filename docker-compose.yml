@@ -18,8 +18,7 @@ services:
   # ─────────────────────────────────────────────────────────────────────────────
   github-backup:
     build:
-      context: ./src
-      dockerfile: Dockerfile
+      context: .
     container_name: ${STACK_NAME:-github-backup}
     environment:
       # ─── GitHub ───

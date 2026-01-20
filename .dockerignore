@@ -46,9 +46,10 @@ venv/
 .venv/
 
 # ───────────────────────────────────────────────────────────────────────────────
-# Tests
+# Tests - NOT excluded (needed for test stage in Docker build)
+# Tests are excluded from production image via selective COPY in Dockerfile
 # ───────────────────────────────────────────────────────────────────────────────
-tests/
+# tests/
 
 # ───────────────────────────────────────────────────────────────────────────────
 # Local Data

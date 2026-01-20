@@ -15,7 +15,7 @@
 # ───────────────────────────────────────────────────────────────────────────────
 # Build Stage - Install Dependencies
 # ───────────────────────────────────────────────────────────────────────────────
-FROM python:3.13-alpine AS builder
+FROM python:3.14-alpine AS builder
 
 RUN apk add --no-cache \
     gcc \
@@ -30,7 +30,7 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # ───────────────────────────────────────────────────────────────────────────────
 # Test Stage - Run Tests During Build
 # ───────────────────────────────────────────────────────────────────────────────
-FROM python:3.13-alpine AS test
+FROM python:3.14-alpine AS test
 
 # Build dependencies for test packages
 RUN apk add --no-cache \
@@ -59,7 +59,7 @@ RUN env -i HOME="$HOME" PATH="$PATH" PYTHONDONTWRITEBYTECODE=1 \
 # ───────────────────────────────────────────────────────────────────────────────
 # Production Stage - Minimal Runtime Image
 # ───────────────────────────────────────────────────────────────────────────────
-FROM python:3.13-alpine AS prod
+FROM python:3.14-alpine AS prod
 
 # =============================================================================
 # Custom Labels

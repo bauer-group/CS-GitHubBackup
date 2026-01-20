@@ -23,7 +23,7 @@ jobs:
   validate-compose:
     uses: bauer-group/automation-templates/.github/workflows/modules-validate-compose.yml@main
     with:
-      compose-file: 'docker-compose.yml'
+      compose-files: '["docker-compose.yml"]'
       env-template: |
         {
           "GITHUB_OWNER": "my-org",

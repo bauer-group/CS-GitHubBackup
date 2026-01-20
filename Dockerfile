@@ -78,7 +78,7 @@ LABEL org.opencontainers.image.source="https://github.com/bauer-group/CS-GitHubB
 LABEL org.opencontainers.image.url="https://github.com/bauer-group/CS-GitHubBackup"
 LABEL org.opencontainers.image.documentation="https://github.com/bauer-group/CS-GitHubBackup#readme"
 LABEL org.opencontainers.image.description="Automated GitHub repository backup to S3-compatible storage with scheduling, incremental backups, and alerting"
-LABEL org.opencontainers.image.version="0.0.0"
+LABEL org.opencontainers.image.version="0.1.0"
 
 # Runtime dependencies (git-lfs for LFS repository support)
 RUN apk add --no-cache \

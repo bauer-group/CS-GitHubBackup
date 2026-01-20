@@ -1,0 +1,42 @@
+# =============================================================================
+# Docker Maintenance - Auto-merge Dependabot PRs
+# =============================================================================
+# Automatically merges Dependabot PRs for Docker base image updates.
+# After merge, the docker-release.yml workflow is triggered which:
+# 1. Creates a semantic release
+# 2. Builds and pushes the new Docker image
+#
+# Flow:
+# ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+# │  Dependabot     │────▶│  PR Created     │────▶│  Docker Build   │
+# │  Finds Update   │     │  (base image)   │     │  Validates      │
+# └─────────────────┘     └─────────────────┘     └────────┬────────┘
+#                                                          │
+#                                                          ▼
+# ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+# │  New Release    │◀────│  Auto-Merged    │◀────│  All Checks     │
+# │  + Docker Push  │     │  to main        │     │  Pass ✅        │
+# └─────────────────┘     └─────────────────┘     └─────────────────┘
+# =============================================================================
+
+name: 🔧 Docker Maintenance
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'Dockerfile'
+      # - 'tools/Dockerfile'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  maintenance:
+    name: Auto-merge Dependabot PRs
+    uses: bauer-group/automation-templates/.github/workflows/docker-maintenance-dependabot.yml@main
+    with:
+      merge-method: 'squash'
+      auto-approve: true
+    secrets: inherit

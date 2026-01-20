@@ -115,9 +115,25 @@ Repo B: Dormant for 30 days   → Last backup from day 1 preserved
 Repo C: Dormant for 60 days   → Last backup from day 1 preserved
 ```
 
+**Important: Code Changes Only**
+
+Incremental mode detects changes based on the repository's `pushed_at` timestamp from GitHub API. This timestamp only updates when code is pushed to the repository.
+
+| Change Type | Detected | Reason |
+|-------------|----------|--------|
+| Code push (commits) | Yes | Updates `pushed_at` |
+| New branch/tag | Yes | Updates `pushed_at` |
+| Force push | Yes | Updates `pushed_at` |
+| New issues/comments | **No** | Does not update `pushed_at` |
+| New pull requests | **No** | Does not update `pushed_at` |
+| New releases | **No** | Does not update `pushed_at` |
+| Wiki edits | **No** | Does not update `pushed_at` |
+
+If a repository has new issues, PRs, or releases but no code push since the last backup, it will be **skipped** in incremental mode. The metadata in S3 will remain from the previous backup.
+
 **Disable incremental mode:**
 
-To force a full backup every time:
+To ensure all metadata is always up-to-date, force a full backup every time:
 
 ```env
 BACKUP_INCREMENTAL=false
@@ -397,27 +413,44 @@ S3_REGION=auto
 
 ## GitHub Token Setup
 
-### Create Personal Access Token
+### Option 1: Fine-grained PAT (Recommended)
 
 1. Go to [GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens](https://github.com/settings/tokens?type=beta)
 2. Click **Generate new token**
 3. Token name: `github-backup`
 4. Expiration: Choose appropriate duration
-5. Repository access: **All repositories** (or select specific ones)
+5. Resource owner: Select your organization or personal account
+6. Repository access: **All repositories** (or select specific ones)
 
-### Required Permissions
+**Required Repository Permissions (Read-only):**
 
-| Permission | Access | Purpose |
-|------------|--------|---------|
-| **Contents** | Read-only | Clone repositories |
-| **Issues** | Read-only | Export issues |
-| **Pull requests** | Read-only | Export pull requests |
-| **Metadata** | Read-only | Repository information |
+| Permission | Purpose |
+|------------|---------|
+| **Contents** | Clone repositories and wikis |
+| **Issues** | Export issues and comments |
+| **Pull requests** | Export pull requests |
+| **Metadata** | Repository information (automatically included) |
 
-For organization repositories, also add:
-| Permission | Access | Purpose |
-|------------|--------|---------|
-| **Members** | Read-only | List organization repos |
+**Required Organization Permissions (for org backups):**
+
+| Permission | Purpose |
+|------------|---------|
+| **Members** | List organization repositories |
+
+### Option 2: Classic PAT
+
+1. Go to [GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)
+2. Click **Generate new token (classic)**
+3. Token name: `github-backup`
+4. Expiration: Choose appropriate duration
+
+**Required Scopes:**
+
+| Scope | Purpose |
+|-------|---------|
+| `repo` | Full repository access (required for private repos) |
+| `public_repo` | Alternative: public repositories only |
+| `read:org` | Read organization membership (required for org backups) |
 
 ### Configure .env
 

@@ -144,7 +144,7 @@ class EmailAlerter(BaseAlerter):
 
         if alert.repos_backed_up > 0:
             # Always show LFS status for consistency
-            lfs_value = str(alert.lfs_repos) if alert.lfs_repos > 0 else "-"
+            lfs_value = str(alert.lfs_repos) if alert.lfs_repos else "0"
             lines.append(f"Repos with Git LFS: {lfs_value}")
 
             lines.extend([
@@ -223,7 +223,7 @@ class EmailAlerter(BaseAlerter):
 
         if alert.repos_backed_up > 0:
             # Always show LFS status for consistency
-            lfs_value = str(alert.lfs_repos) if alert.lfs_repos > 0 else "-"
+            lfs_value = str(alert.lfs_repos) if alert.lfs_repos else "0"
             stats_rows += f"""
             <tr>
                 <td style="padding: 8px 12px; border-bottom: 1px solid #e0e0e0;">Repos with Git LFS</td>

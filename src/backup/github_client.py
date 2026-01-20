@@ -74,10 +74,11 @@ class GitHubBackupClient:
         self._authenticated = settings.is_authenticated
 
         if self._authenticated:
-            self.gh = Github(settings.github_pat)
+            # Use per_page=100 for better performance with large orgs
+            self.gh = Github(settings.github_pat, per_page=100)
             logger.info("GitHub client initialized with authentication (5000 req/hour)")
         else:
-            self.gh = Github()  # Unauthenticated
+            self.gh = Github(per_page=100)  # Unauthenticated
             logger.warning(
                 "GitHub client initialized WITHOUT authentication. "
                 "Only public repositories accessible (60 req/hour rate limit). "

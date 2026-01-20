@@ -53,8 +53,6 @@ COPY src/ .
 # inject as build args - these can interfere with Pydantic Settings validation
 RUN env -i HOME="$HOME" PATH="$PATH" PYTHONDONTWRITEBYTECODE=1 \
     pytest tests/ -v --tb=short \
-    && echo "═══════════════════════════════════════════════════════════════════════" \
-    && echo "✓ All tests passed successfully" \
     && echo "═══════════════════════════════════════════════════════════════════════"
 
 # ───────────────────────────────────────────────────────────────────────────────

@@ -7,6 +7,13 @@ on:
       - '.github/**'
       - '*.md'
       - 'docs/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tools/**'
+      - 'docker-compose.yml'
+      - '.dockerignore'
   workflow_dispatch:
     inputs:
       force-release:
@@ -20,7 +27,12 @@ permissions:
   pull-requests: write
 
 jobs:
+  # ============================================
+  # Validation Jobs
+  # ============================================
+
   validate-compose:
+    name: 🔍 Validate Docker Compose
     uses: bauer-group/automation-templates/.github/workflows/modules-validate-compose.yml@main
     with:
       compose-files: '["docker-compose.yml"]'
@@ -35,17 +47,23 @@ jobs:
         }
 
   validate-scripts:
+    name: 🔍 Validate Shell Scripts
     uses: bauer-group/automation-templates/.github/workflows/modules-validate-shellscript.yml@main
     with:
       scan-directory: '.'
       severity: 'error'
 
+  # ============================================
+  # Release Job (only on main branch push)
+  # ============================================
+
   release:
+    name: 📦 Create Semantic Release
     needs: [validate-compose, validate-scripts]
     if: |
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      needs.validate-compose.outputs.valid == 'true' &&
-      needs.validate-scripts.outputs.passed == 'true'
+      needs.validate-compose.result == 'success' &&
+      needs.validate-scripts.result == 'success'
     uses: bauer-group/automation-templates/.github/workflows/modules-semantic-release.yml@main
     with:
       target-branch: 'main'

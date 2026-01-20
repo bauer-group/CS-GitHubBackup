@@ -426,16 +426,12 @@ S3_REGION=auto
 
 | Permission | Purpose |
 |------------|---------|
-| **Contents** | Clone repositories and wikis |
+| **Contents** | Clone repositories (includes wiki via git) |
 | **Issues** | Export issues and comments |
 | **Pull requests** | Export pull requests |
 | **Metadata** | Repository information (automatically included) |
 
-**Required Organization Permissions (for org backups):**
-
-| Permission | Purpose |
-|------------|---------|
-| **Members** | List organization repositories |
+> **Note:** All permissions should be set to **Read-only** - no write access needed. No organization permissions required.
 
 ### Option 2: Classic PAT
 

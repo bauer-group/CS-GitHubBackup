@@ -192,6 +192,7 @@ def run_backup(settings: Settings) -> bool:
                     )
 
                 except Exception as e:
+                    logger.error(f"Failed to backup {repo_name}: {e}")
                     repo_stats["error"] = str(e)
                     stats["errors"] += 1
                     error_messages.append(f"{repo_name}: {e}")

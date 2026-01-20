@@ -155,11 +155,15 @@ def run_backup(settings: Settings) -> bool:
                     bundle_path, bundle_size = git_backup.clone_and_bundle(
                         clone_url, repo_name
                     )
-                    repo_stats["git_size"] = format_size(bundle_size)
-                    stats["total_size"] += bundle_size
 
-                    # Upload bundle to S3
-                    s3_storage.upload_file(bundle_path, backup_id, repo_name)
+                    if bundle_path is not None:
+                        repo_stats["git_size"] = format_size(bundle_size)
+                        stats["total_size"] += bundle_size
+                        # Upload bundle to S3
+                        s3_storage.upload_file(bundle_path, backup_id, repo_name)
+                    else:
+                        # Empty repository - no commits
+                        repo_stats["git_size"] = "empty"
 
                     # Backup metadata (use underlying repo object)
                     if settings.backup_include_metadata:

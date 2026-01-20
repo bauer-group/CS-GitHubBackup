@@ -59,20 +59,46 @@ class GitBackup:
 
         return mirror_path
 
-    def create_bundle(self, mirror_path: Path) -> Path:
+    def is_empty_repo(self, mirror_path: Path) -> bool:
+        """Check if a repository is empty (has no commits).
+
+        Args:
+            mirror_path: Path to the mirror repository.
+
+        Returns:
+            True if the repository is empty, False otherwise.
+        """
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(mirror_path),
+                capture_output=True,
+                text=True,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+            )
+            return result.returncode != 0
+        except Exception:
+            return True
+
+    def create_bundle(self, mirror_path: Path) -> Optional[Path]:
         """Create a portable bundle from a mirror repository.
 
         Args:
             mirror_path: Path to the mirror repository.
 
         Returns:
-            Path to the created bundle file.
+            Path to the created bundle file, or None if repository is empty.
 
         Raises:
-            subprocess.CalledProcessError: If bundle creation fails.
+            subprocess.CalledProcessError: If bundle creation fails (except for empty repos).
         """
         bundle_path = mirror_path.with_suffix(".bundle")
         repo_name = mirror_path.stem
+
+        # Check if repository is empty
+        if self.is_empty_repo(mirror_path):
+            logger.info(f"Repository {repo_name} is empty, skipping bundle creation")
+            return None
 
         logger.debug(f"Creating bundle for {repo_name}...")
 
@@ -90,12 +116,16 @@ class GitBackup:
                 env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
             )
         except subprocess.CalledProcessError as e:
+            # Double-check for empty bundle error
+            if "empty bundle" in e.stderr.lower():
+                logger.info(f"Repository {repo_name} is empty, skipping bundle creation")
+                return None
             logger.error(f"Failed to create bundle for {repo_name}: {e.stderr}")
             raise
 
         return bundle_path
 
-    def clone_and_bundle(self, repo_url: str, repo_name: str) -> tuple[Path, int]:
+    def clone_and_bundle(self, repo_url: str, repo_name: str) -> tuple[Optional[Path], int]:
         """Clone a repository and create a bundle.
 
         Args:
@@ -104,9 +134,17 @@ class GitBackup:
 
         Returns:
             Tuple of (bundle_path, bundle_size_bytes).
+            bundle_path is None if the repository is empty.
+            bundle_size is 0 for empty repositories.
         """
         mirror_path = self.mirror_clone(repo_url, repo_name)
         bundle_path = self.create_bundle(mirror_path)
+
+        if bundle_path is None:
+            # Empty repository - cleanup and return
+            shutil.rmtree(mirror_path)
+            return None, 0
+
         bundle_size = bundle_path.stat().st_size
 
         # Cleanup mirror directory to save space

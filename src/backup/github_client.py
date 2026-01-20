@@ -69,7 +69,13 @@ class GitHubBackupClient:
         return self._owner
 
     def _resolve_owner(self) -> Organization | AuthenticatedUser:
-        """Resolve the owner name to an Organization or User object."""
+        """Resolve the owner name to an Organization or User object.
+
+        For private repository access:
+        - Organizations: Uses get_repos(type="all") in get_repositories()
+        - Users: Must use AuthenticatedUser (get_user() without args)
+          NamedUser (get_user(name)) only sees public repositories!
+        """
         owner_name = self.settings.github_owner
 
         # Try as organization first
@@ -80,10 +86,22 @@ class GitHubBackupClient:
         except GithubException:
             pass
 
-        # Fall back to user
+        # Check if owner is the authenticated user (required for private repo access)
+        try:
+            authenticated_user = self.gh.get_user()  # No args = AuthenticatedUser
+            if authenticated_user.login.lower() == owner_name.lower():
+                logger.info(f"Resolved '{owner_name}' as authenticated user (private repos accessible)")
+                return authenticated_user
+        except GithubException:
+            pass
+
+        # Fall back to named user (only public repos visible)
         try:
             user = self.gh.get_user(owner_name)
-            logger.info(f"Resolved '{owner_name}' as user")
+            logger.warning(
+                f"Resolved '{owner_name}' as named user (only public repos accessible). "
+                f"For private repos, ensure GITHUB_OWNER matches your PAT owner."
+            )
             return user
         except GithubException as e:
             raise ValueError(f"Could not find organization or user: {owner_name}") from e

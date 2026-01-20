@@ -974,10 +974,128 @@ aws s3 cp s3://bucket/github-backup/2024-01-15_02-00-00/my-repo/metadata/ ./meta
 cat metadata/issues.json | jq '.[] | {number, title, state}'
 ```
 
+### Backup Verification
+
+Git bundles are **not standard archives** (like ZIP or TAR). They use Git's internal pack format and can only be verified with Git commands.
+
+#### Verify Bundle Integrity
+
+```bash
+# Verify a bundle is complete and valid
+git bundle verify my-repo.bundle
+```
+
+**Expected output (success):**
+
+```
+The bundle contains these 3 refs:
+abc1234def5678... refs/heads/main
+def5678abc1234... refs/heads/develop
+aaa1111bbb2222... refs/tags/v1.0.0
+The bundle records a complete history.
+my-repo.bundle is okay
+```
+
+**Error output (corrupted or incomplete):**
+
+```
+error: Repository lacks these prerequisite commits:
+abc1234def5678...
+```
+
+#### List Bundle Contents
+
+```bash
+# Show all branches and tags in the bundle
+git bundle list-heads my-repo.bundle
+```
+
+**Output:**
+
+```
+abc1234def5678901234567890abcdef12345678 refs/heads/main
+def5678abc1234901234567890abcdef12345678 refs/heads/develop
+aaa1111bbb2222901234567890abcdef12345678 refs/heads/feature/new-api
+bbb3333ccc4444901234567890abcdef12345678 refs/tags/v1.0.0
+ccc5555ddd6666901234567890abcdef12345678 refs/tags/v1.1.0
+```
+
+#### Verify Without Cloning
+
+To check a bundle without creating a full clone:
+
+```bash
+# Quick verification (no disk space needed for repo)
+git bundle verify my-repo.bundle && echo "✓ Bundle is valid" || echo "✗ Bundle is corrupted"
+
+# Count objects in bundle
+git bundle list-heads my-repo.bundle | wc -l
+```
+
+#### Automated Verification Script
+
+```bash
+#!/bin/bash
+# verify-backups.sh - Verify all bundles in a backup directory
+
+BACKUP_DIR="./2024-01-15_02-00-00"
+ERRORS=0
+
+for bundle in "$BACKUP_DIR"/**/*.bundle; do
+    if git bundle verify "$bundle" > /dev/null 2>&1; then
+        echo "✓ $(basename "$bundle")"
+    else
+        echo "✗ $(basename "$bundle") - CORRUPTED"
+        ((ERRORS++))
+    fi
+done
+
+echo ""
+if [ $ERRORS -eq 0 ]; then
+    echo "All bundles verified successfully"
+else
+    echo "WARNING: $ERRORS bundle(s) failed verification"
+    exit 1
+fi
+```
+
+> **Note:** Git bundles cannot be opened with 7zip or other archive tools. They are Git's internal format containing packed objects with zlib compression.
+
+#### Git LFS Limitation
+
+> **⚠️ Important:** Git bundles do **NOT** include Git LFS objects!
+
+Git LFS (Large File Storage) works by storing small "pointer files" in the repository, while actual large files are stored on a separate LFS server. When creating a bundle:
+
+| Content | Included in Bundle? |
+| ------- | ------------------- |
+| Regular Git objects | ✓ Yes |
+| Branches and tags | ✓ Yes |
+| LFS pointer files | ✓ Yes (pointers only) |
+| LFS actual files | ✗ **No** |
+
+**If your repositories use Git LFS**, you need additional backup measures:
+
+```bash
+# After restoring from bundle, fetch LFS objects from original server
+cd restored-repo
+git lfs fetch --all origin
+
+# Or export LFS objects before backup
+git lfs fetch --all
+git lfs checkout
+```
+
+For full LFS backup, consider:
+
+- Direct LFS server backup (if self-hosted)
+- GitHub's export feature for LFS content
+- Manual `git lfs fetch --all` before bundle creation
+
 ### Disaster Recovery Checklist
 
 1. **Identify the backup** - Use `cli list` to find available backups
-2. **Verify integrity** - Use `cli show <backup-id>` to check contents
+2. **Verify integrity** - Use `git bundle verify` or `cli show <backup-id>` to check contents
 3. **Download locally first** - Use `cli download` for verification before push
 4. **Test restore** - Clone bundle locally to verify completeness
 5. **Push to remote** - Use `cli restore` to push to target

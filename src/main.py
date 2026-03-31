@@ -19,7 +19,7 @@ from scheduler import setup_scheduler
 from sync_state_manager import SyncStateManager
 from alerting.manager import AlertManager
 from backup.github_client import GitHubBackupClient
-from backup.git_operations import GitBackup, BackupResult
+from backup.git_operations import GitBackup, BackupResult, mask_credentials
 from backup.metadata_exporter import MetadataExporter
 from backup.wiki_backup import WikiBackup
 from storage.s3_client import S3Storage
@@ -238,6 +238,10 @@ def run_backup(settings: Settings) -> bool:
                             stats["lfs_repos"] = stats.get("lfs_repos", 0) + 1
                             s3_storage.upload_file(backup_result.lfs_path, backup_id, repo_name)
 
+                    # Check rate limit before metadata-heavy operations
+                    if settings.backup_include_metadata:
+                        gh_client.wait_for_rate_limit()
+
                     # Backup metadata (use underlying repo object)
                     if settings.backup_include_metadata:
                         meta_counts = metadata_exporter.export_all(repo_info.repo)
@@ -275,10 +279,11 @@ def run_backup(settings: Settings) -> bool:
                     )
 
                 except Exception as e:
-                    backup_logger.debug(f"Failed to backup {repo_name}: {e}")
-                    repo_stats["error"] = str(e)
+                    safe_error = mask_credentials(e)
+                    backup_logger.error(f"Failed to backup {repo_name}: {safe_error}")
+                    repo_stats["error"] = safe_error
                     stats["errors"] += 1
-                    error_messages.append(f"{repo_name}: {e}")
+                    error_messages.append(f"{repo_name}: {safe_error}")
 
                 # Print status for this repo
                 print_repo_status(

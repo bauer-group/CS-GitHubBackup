@@ -82,12 +82,15 @@ class MetadataExporter:
 
         issues = []
         for issue in repo.get_issues(state="all"):
-            # Skip pull requests (they appear in issues API too)
-            if issue.pull_request:
-                continue
+            try:
+                # Skip pull requests (they appear in issues API too)
+                if issue.pull_request:
+                    continue
 
-            issue_data = self._issue_to_dict(issue)
-            issues.append(issue_data)
+                issue_data = self._issue_to_dict(issue)
+                issues.append(issue_data)
+            except GithubException as e:
+                backup_logger.warning(f"Failed to export issue #{issue.number} for {repo.name}: {e}")
 
         self._write_json(issues, output_path)
         return issues
@@ -106,8 +109,11 @@ class MetadataExporter:
 
         prs = []
         for pr in repo.get_pulls(state="all"):
-            pr_data = self._pr_to_dict(pr)
-            prs.append(pr_data)
+            try:
+                pr_data = self._pr_to_dict(pr)
+                prs.append(pr_data)
+            except GithubException as e:
+                backup_logger.warning(f"Failed to export PR #{pr.number} for {repo.name}: {e}")
 
         self._write_json(prs, output_path)
         return prs
@@ -126,8 +132,11 @@ class MetadataExporter:
 
         releases = []
         for release in repo.get_releases():
-            release_data = self._release_to_dict(release)
-            releases.append(release_data)
+            try:
+                release_data = self._release_to_dict(release)
+                releases.append(release_data)
+            except GithubException as e:
+                backup_logger.warning(f"Failed to export release {release.tag_name} for {repo.name}: {e}")
 
         self._write_json(releases, output_path)
         return releases

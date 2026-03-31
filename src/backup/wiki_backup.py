@@ -4,13 +4,12 @@ GitHub Backup - Wiki Backup Module
 Handles backup of repository wikis.
 """
 
+import subprocess
 from pathlib import Path
 from typing import Optional
 
-from git import GitCommandError
-
 from ui.console import backup_logger
-from .git_operations import GitBackup
+from .git_operations import GitBackup, mask_credentials
 
 
 class WikiBackup:
@@ -45,21 +44,24 @@ class WikiBackup:
         wiki_name = f"{repo_name}.wiki"
 
         try:
-            bundle_path, bundle_size = self.git_backup.clone_and_bundle(
-                wiki_url, wiki_name
-            )
-            backup_logger.info(f"Wiki backup created for {repo_name}")
-            return bundle_path, bundle_size
+            result = self.git_backup.clone_and_bundle(wiki_url, wiki_name)
 
-        except GitCommandError as e:
+            if result.is_empty or result.bundle_path is None:
+                backup_logger.debug(f"Wiki is empty for {repo_name}")
+                return None, None
+
+            backup_logger.info(f"Wiki backup created for {repo_name}")
+            return result.bundle_path, result.bundle_size
+
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             # Wiki might be enabled but empty, or access denied
-            error_msg = str(e).lower()
+            error_msg = mask_credentials(e).lower()
             if "repository not found" in error_msg or "not exist" in error_msg:
                 backup_logger.debug(f"Wiki not available for {repo_name} (empty or disabled)")
             else:
-                backup_logger.warning(f"Failed to backup wiki for {repo_name}: {e}")
+                backup_logger.warning(f"Failed to backup wiki for {repo_name}: {error_msg}")
             return None, None
 
         except Exception as e:
-            backup_logger.warning(f"Unexpected error backing up wiki for {repo_name}: {e}")
+            backup_logger.warning(f"Unexpected error backing up wiki for {repo_name}: {mask_credentials(e)}")
             return None, None

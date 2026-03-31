@@ -9,6 +9,8 @@ and data volume loss.
 """
 
 import json
+import os
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -152,15 +154,28 @@ class SyncStateManager:
             return self._state
 
     def _save_state(self) -> None:
-        """Save state to file and sync to S3."""
+        """Save state to file atomically and sync to S3.
+
+        Uses write-to-temp-then-rename pattern to prevent corruption
+        if the process crashes mid-write.
+        """
         if self._state is None:
             return
 
         self._state["updated_at"] = datetime.now().isoformat()
 
         try:
-            with open(self.state_file, "w") as f:
-                json.dump(self._state, f, indent=2)
+            # Atomic write: temp file + rename prevents corruption on crash
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(self.state_file.parent), suffix=".tmp"
+            )
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(self._state, f, indent=2)
+                os.replace(tmp_path, str(self.state_file))
+            except Exception:
+                os.unlink(tmp_path)
+                raise
             # Sync to S3 for persistence
             self._sync_state_to_s3()
         except IOError as e:

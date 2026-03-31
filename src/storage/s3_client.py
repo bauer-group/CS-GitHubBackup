@@ -184,6 +184,18 @@ class S3Storage:
 
         try:
             self.uploader.upload_file(local_path, key)
+
+            # Verify critical uploads (bundles) arrived with correct size
+            if local_path.suffix == ".bundle":
+                response = self.s3.head_object(Bucket=self.bucket, Key=key)
+                remote_size = response["ContentLength"]
+                local_size = local_path.stat().st_size
+                if remote_size != local_size:
+                    raise RuntimeError(
+                        f"Upload verification failed for {key}: "
+                        f"local={local_size}, remote={remote_size}"
+                    )
+
             return key
         except ClientError as e:
             backup_logger.error(f"Failed to upload {local_path}: {e}")

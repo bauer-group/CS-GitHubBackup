@@ -6,6 +6,7 @@ Includes Git LFS support for complete backups.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -16,6 +17,15 @@ from typing import Optional
 from git import Repo, GitCommandError
 
 from ui.console import backup_logger
+
+
+def mask_credentials(text: str) -> str:
+    """Mask embedded credentials in URLs within a string.
+
+    Replaces patterns like https://TOKEN@github.com with https://***@github.com
+    to prevent leaking PATs in logs, alerts, or error messages.
+    """
+    return re.sub(r"https://[^@]+@", "https://***@", str(text))
 
 
 @dataclass
@@ -68,12 +78,12 @@ class GitBackup:
 
         backup_logger.debug(f"Cloning {repo_name} as mirror...")
 
-        # Clone - let caller handle logging for failures
         Repo.clone_from(
             repo_url,
             str(mirror_path),
             mirror=True,
-            env={"GIT_TERMINAL_PROMPT": "0"}
+            env={"GIT_TERMINAL_PROMPT": "0"},
+            kill_after_timeout=3600,
         )
 
         return mirror_path
@@ -325,8 +335,3 @@ class GitBackup:
                 item.unlink()
             elif item.is_dir():
                 shutil.rmtree(item)
-
-
-class WikiBackupError(Exception):
-    """Exception raised when wiki backup fails."""
-    pass

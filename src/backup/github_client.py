@@ -8,8 +8,9 @@ Supports two modes:
 - Unauthenticated: Without GITHUB_PAT - public repos only, 60 requests/hour
 """
 
+import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Generator, Optional, Union
 
 from github import Github, GithubException
@@ -17,6 +18,7 @@ from github.Repository import Repository
 from github.Organization import Organization
 from github.AuthenticatedUser import AuthenticatedUser
 from github.NamedUser import NamedUser
+from urllib3.util.retry import Retry
 
 from config import Settings
 from ui.console import backup_logger
@@ -71,12 +73,15 @@ class GitHubBackupClient:
         self.settings = settings
         self._authenticated = settings.is_authenticated
 
+        # Retry on transient server errors (502, 503, 504)
+        retry = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+
         if self._authenticated:
             # Use per_page=100 for better performance with large orgs
-            self.gh = Github(settings.github_pat, per_page=100)
+            self.gh = Github(settings.github_pat, per_page=100, retry=retry)
             backup_logger.debug("GitHub client initialized with authentication (5000 req/hour)")
         else:
-            self.gh = Github(per_page=100)  # Unauthenticated
+            self.gh = Github(per_page=100, retry=retry)  # Unauthenticated
             backup_logger.debug(
                 "GitHub client initialized WITHOUT authentication. "
                 "Only public repositories accessible (60 req/hour rate limit). "
@@ -103,12 +108,31 @@ class GitHubBackupClient:
         Returns:
             Dict with 'limit', 'remaining', 'reset' keys.
         """
-        rate = self.gh.get_rate_limit()
+        rate = self.gh.get_rate_limit().rate
         return {
-            "limit": rate.core.limit,
-            "remaining": rate.core.remaining,
-            "reset": rate.core.reset.isoformat() if rate.core.reset else None,
+            "limit": rate.limit,
+            "remaining": rate.remaining,
+            "reset": rate.reset.isoformat() if rate.reset else None,
         }
+
+    def wait_for_rate_limit(self, min_remaining: int = 100) -> None:
+        """Check rate limit and wait if near exhaustion.
+
+        Args:
+            min_remaining: Minimum remaining requests before waiting.
+        """
+        try:
+            rate = self.gh.get_rate_limit().rate
+            if rate.remaining < min_remaining:
+                wait_seconds = (rate.reset - datetime.now(timezone.utc)).total_seconds() + 5
+                if wait_seconds > 0:
+                    backup_logger.warning(
+                        f"Rate limit low ({rate.remaining}/{rate.limit} remaining), "
+                        f"waiting {wait_seconds:.0f}s until reset"
+                    )
+                    time.sleep(min(wait_seconds, 3600))  # Cap at 1 hour
+        except Exception:
+            pass  # Never fail backup over rate limit check
 
     def _resolve_owner(self) -> OwnerType:
         """Resolve the owner name to an Organization or User object.

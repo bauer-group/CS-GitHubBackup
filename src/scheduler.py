@@ -44,7 +44,7 @@ class BackupScheduler:
                 self.state_manager.update_sync_time()
                 backup_logger.debug("Sync state updated after successful backup")
         except Exception as e:
-            backup_logger.debug(f"Backup execution failed: {e}")
+            backup_logger.error(f"Backup execution failed: {e}")
             raise
 
     def _job_listener(self, event: Event) -> None:

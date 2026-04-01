@@ -1,3 +1,9 @@
+## [0.1.3](https://github.com/bauer-group/CS-GitHubBackup/compare/v0.1.2...v0.1.3) (2026-04-01)
+
+### 🐛 Bug Fixes
+
+* **backup:** fixed wiki backup, hardened security and reliability ([df14f42](https://github.com/bauer-group/CS-GitHubBackup/commit/df14f4244733621ac5059dd90346282ebf2bb4b4))
+
 ## [0.1.2](https://github.com/bauer-group/CS-GitHubBackup/compare/v0.1.1...v0.1.2) (2026-04-01)
 
 ### 🐛 Bug Fixes

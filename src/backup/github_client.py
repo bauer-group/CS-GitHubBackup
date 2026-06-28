@@ -26,6 +26,22 @@ from ui.console import backup_logger
 # Type alias for owner objects
 OwnerType = Union[Organization, AuthenticatedUser, NamedUser]
 
+# HTTP statuses worth retrying on. Beyond the usual transient 5xx, GitHub
+# intermittently returns 401 "Bad credentials" on an otherwise-valid token under
+# bursty authenticated traffic, and 403 for secondary rate limits; both succeed on
+# retry, so the same request must not be dropped after a single failure.
+RETRYABLE_STATUSES = [401, 403, 500, 502, 503, 504]
+
+
+def _build_retry() -> Retry:
+    """Build the urllib3 retry policy used for all GitHub API requests."""
+    return Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=RETRYABLE_STATUSES,
+        respect_retry_after_header=True,
+    )
+
 
 @dataclass
 class RepoInfo:
@@ -73,8 +89,7 @@ class GitHubBackupClient:
         self.settings = settings
         self._authenticated = settings.is_authenticated
 
-        # Retry on transient server errors (502, 503, 504)
-        retry = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+        retry = _build_retry()
 
         if self._authenticated:
             # Use per_page=100 for better performance with large orgs

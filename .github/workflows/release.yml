@@ -54,17 +54,34 @@ jobs:
       scan-directory: '.'
       severity: 'error'
 
+  # The image's test stage runs pytest, so building the image runs the
+  # test suite on the same Python and dependencies that ship. Nothing is
+  # pushed.
+  build-test:
+    name: 🧪 Build Image & Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build image (runs pytest)
+        run: docker build --progress=plain --tag github-backup:ci .
+
   # ============================================
   # Release Job (only on main branch push)
   # ============================================
 
   release:
     name: 📦 Create Semantic Release
-    needs: [validate-compose, validate-scripts]
+    needs: [validate-compose, validate-scripts, build-test]
     if: |
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.validate-compose.result == 'success' &&
-      needs.validate-scripts.result == 'success'
+      needs.validate-scripts.result == 'success' &&
+      needs.build-test.result == 'success'
     uses: bauer-group/automation-templates/.github/workflows/modules-semantic-release.yml@main
     with:
       target-branch: 'main'

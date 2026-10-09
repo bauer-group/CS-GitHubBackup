@@ -65,12 +65,20 @@ def lifecycle(monkeypatch):
     assert restored is main_handler
 
 
-def run_until_sigterm(backup_scheduler, ready, timeout=30.0):
-    """Run start() on the main thread and send SIGTERM once ``ready`` is set."""
+def run_until_sigterm(backup_scheduler, ready, before_stop=None, timeout=30.0):
+    """Run start() on the main thread and send SIGTERM once ``ready`` is set.
+
+    ``before_stop`` runs on the helper thread while the scheduler is still
+    running; once stopped, APScheduler 3 only looks up pending jobs.
+    """
 
     def stopper():
         ready.wait(timeout)
-        os.kill(os.getpid(), signal.SIGTERM)
+        try:
+            if before_stop:
+                before_stop()
+        finally:
+            os.kill(os.getpid(), signal.SIGTERM)
 
     thread = threading.Thread(target=stopper, daemon=True)
     thread.start()
@@ -144,13 +152,22 @@ class TestLifecycle:
             backup_schedule_interval_hours=1,
         )
         started_at = datetime.now(timezone.utc)
+        next_runs = []
 
-        run_until_sigterm(backup_scheduler, ran)
+        # The scheduler moves the job to its next run under the job store
+        # lock before releasing it, so this read sees the updated time
+        run_until_sigterm(
+            backup_scheduler,
+            ran,
+            before_stop=lambda: next_runs.append(
+                backup_scheduler.scheduler.get_job(JOB_ID).next_run_time
+            ),
+        )
 
         assert ran.is_set()
         backup_scheduler.state_manager.update_sync_time.assert_called_once()
-        next_run = backup_scheduler.scheduler.get_job(JOB_ID).next_run_time
-        assert timedelta(minutes=59) < next_run - started_at < timedelta(minutes=61)
+        assert len(next_runs) == 1
+        assert timedelta(minutes=59) < next_runs[0] - started_at < timedelta(minutes=61)
         assert not backup_scheduler.scheduler.running
         # The signal was passed on to main()'s graceful shutdown handler
         assert lifecycle == [signal.SIGTERM]

@@ -63,9 +63,20 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    env:
+      # Step conditions cannot read secrets; fork and Dependabot runs get none
+      HAS_DOCKERHUB_LOGIN: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # Docker Hub rate-limits anonymous pulls from shared runner IPs (429)
+      - name: Log in to Docker Hub
+        if: env.HAS_DOCKERHUB_LOGIN == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build image (runs pytest)
         run: docker build --progress=plain --tag github-backup:ci .

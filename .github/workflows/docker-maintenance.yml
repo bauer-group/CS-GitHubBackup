@@ -39,4 +39,8 @@ jobs:
     with:
       merge-method: 'squash'
       auto-approve: true
+      # The repository's CI. It does not run for a Dockerfile change and
+      # builds no image, so Dockerfile updates stay open for review -
+      # nothing tests them before the merge.
+      required-workflows: '.github/workflows/release.yml'
     secrets: inherit

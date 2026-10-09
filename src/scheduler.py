@@ -1,14 +1,17 @@
 """
 GitHub Backup - Scheduler Module
 
-Provides scheduled backup execution using APScheduler v4 with state persistence.
+Provides scheduled backup execution using APScheduler 3 with state persistence.
 """
 
 import signal
-import sys
+import threading
+import time
+from datetime import datetime
 from typing import Callable
 
-from apscheduler import Scheduler, Event, JobReleased
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -16,6 +19,11 @@ from config import Settings
 from storage.s3_client import S3Storage
 from sync_state_manager import SyncStateManager
 from ui.console import backup_logger, console
+
+JOB_ID = "github_backup"
+
+# How often the main thread checks for a shutdown request
+POLL_INTERVAL_SECONDS = 1.0
 
 
 class BackupScheduler:
@@ -30,7 +38,9 @@ class BackupScheduler:
         """
         self.settings = settings
         self.backup_func = backup_func
-        self.scheduler: Scheduler | None = None
+        self.scheduler: BackgroundScheduler | None = None
+        self._job_finished = threading.Event()
+        self._stop_requested = False
 
         # Initialize S3 storage and state manager with S3 sync
         self.s3_storage = S3Storage(settings)
@@ -47,31 +57,39 @@ class BackupScheduler:
             backup_logger.error(f"Backup execution failed: {e}")
             raise
 
-    def _job_listener(self, event: Event) -> None:
+    def _job_listener(self, event: JobExecutionEvent) -> None:
         """Handle job execution events.
+
+        Runs in the executor's worker thread. It must not call back into the
+        scheduler: shutdown() holds the job store lock while it waits for
+        this thread, so a get_job() here would deadlock. The main loop
+        prints the next run time instead.
 
         Args:
             event: Job execution event.
         """
-        if isinstance(event, JobReleased):
-            if event.outcome and event.outcome.name == "error":
-                backup_logger.debug("Backup job failed")
-                console.print(f"[red]Backup job failed[/]")
-            else:
-                backup_logger.debug("Backup job completed successfully")
+        if event.exception:
+            backup_logger.debug("Backup job failed")
+            console.print("[red]Backup job failed[/]")
+        else:
+            backup_logger.debug("Backup job completed successfully")
 
-            # Show next run time
-            self._print_next_run_time()
+        self._job_finished.set()
+
+    def _get_next_run_time(self) -> datetime | None:
+        """Return the next scheduled run time of the backup job, if any."""
+        if not self.scheduler:
+            return None
+
+        job = self.scheduler.get_job(JOB_ID)
+        return getattr(job, "next_run_time", None) if job else None
 
     def _print_next_run_time(self) -> None:
         """Print the next scheduled run time to the console."""
-        if not self.scheduler:
-            return
-
         try:
-            schedule = self.scheduler.get_schedule("github_backup")
-            if schedule and schedule.next_fire_time:
-                next_time = schedule.next_fire_time.strftime("%Y-%m-%d %H:%M:%S")
+            next_run_time = self._get_next_run_time()
+            if next_run_time:
+                next_time = next_run_time.strftime("%Y-%m-%d %H:%M:%S")
                 console.print(f"\n[dim]Next backup scheduled for:[/] [cyan]{next_time}[/]")
                 backup_logger.debug(f"Next backup scheduled for: {next_time}")
         except Exception as e:
@@ -155,52 +173,79 @@ class BackupScheduler:
         schedule_desc = self._get_schedule_description()
         print_scheduler_info(schedule_desc)
 
-        # Use context manager for scheduler
-        with Scheduler() as scheduler:
-            self.scheduler = scheduler
+        scheduler = BackgroundScheduler()
+        self.scheduler = scheduler
+        self._stop_requested = False
 
-            # Import shutdown handler for coordination
-            from main import shutdown_handler
+        # Subscribe to job events
+        scheduler.add_listener(self._job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 
-            # Setup signal handlers inside context
-            def signal_handler(signum, frame):
-                signal_name = signal.Signals(signum).name
-                backup_logger.debug(f"Received {signal_name}, stopping scheduler...")
+        # Interval schedules run once right away, then every N hours
+        # (the APScheduler 4 behaviour this service was built on)
+        first_run = {}
+        if self.settings.backup_schedule_mode == "interval":
+            first_run["next_run_time"] = datetime.now(scheduler.timezone)
 
-                # Notify the shutdown handler (for backup in progress)
-                shutdown_handler.request_shutdown(signum, frame)
+        # One run at a time; a late run still starts and missed runs collapse
+        # into one
+        scheduler.add_job(
+            self._run_backup_with_state,
+            trigger,
+            id=JOB_ID,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=None,
+            **first_run,
+        )
 
-                # Stop the scheduler (allows current job to complete)
-                scheduler.stop()
+        # Start paused so the next run time is known before the first job runs
+        scheduler.start(paused=True)
 
-            signal.signal(signal.SIGINT, signal_handler)
-            signal.signal(signal.SIGTERM, signal_handler)
+        # Pass signals on to the handlers main() installed, so a backup in
+        # progress stops after its current repository. Importing main here
+        # would load a second copy of it (it runs as __main__) whose shutdown
+        # handler the running backup never checks.
+        previous_handlers = {
+            sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)
+        }
 
-            # Subscribe to job events
-            scheduler.subscribe(self._job_listener, {JobReleased})
+        def signal_handler(signum, frame):
+            signal_name = signal.Signals(signum).name
+            backup_logger.debug(f"Received {signal_name}, stopping scheduler...")
 
-            # Add schedule
-            schedule_id = scheduler.add_schedule(
-                self._run_backup_with_state,
-                trigger,
-                id="github_backup",
-            )
+            # Only set a flag; the loop below shuts the scheduler down
+            self._stop_requested = True
+
+            previous = previous_handlers.get(signum)
+            if callable(previous):
+                previous(signum, frame)
+
+        try:
+            for sig in previous_handlers:
+                signal.signal(sig, signal_handler)
 
             # Show next run time
-            try:
-                schedule = scheduler.get_schedule(schedule_id)
-                if schedule and schedule.next_fire_time:
-                    next_time = schedule.next_fire_time.strftime("%Y-%m-%d %H:%M:%S")
-                    console.print(f"[dim]Next backup:[/] [cyan]{next_time}[/]\n")
-                    backup_logger.debug(f"Next backup scheduled for: {next_time}")
-            except Exception:
-                pass  # Ignore if we can't get schedule info
+            next_run_time = self._get_next_run_time()
+            if next_run_time:
+                next_time = next_run_time.strftime("%Y-%m-%d %H:%M:%S")
+                console.print(f"[dim]Next backup:[/] [cyan]{next_time}[/]\n")
+                backup_logger.debug(f"Next backup scheduled for: {next_time}")
 
-            # Start the scheduler (blocks)
-            try:
-                scheduler.run_until_stopped()
-            except (KeyboardInterrupt, SystemExit):
-                backup_logger.debug("Scheduler stopped")
+            scheduler.resume()
+
+            # Poll instead of blocking on a lock so the signal handler never
+            # waits on a lock held by this thread
+            while not self._stop_requested:
+                time.sleep(POLL_INTERVAL_SECONDS)
+                if self._job_finished.is_set():
+                    self._job_finished.clear()
+                    self._print_next_run_time()
+        finally:
+            # Lets a running backup finish; it stops after the current repository
+            scheduler.shutdown(wait=True)
+            for sig, handler in previous_handlers.items():
+                signal.signal(sig, handler)
+            backup_logger.debug("Scheduler stopped")
 
 
 def setup_scheduler(settings: Settings, backup_func: Callable[[], bool]) -> BackupScheduler:

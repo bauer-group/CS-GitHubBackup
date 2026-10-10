@@ -14,6 +14,13 @@ on:
       - 'tools/**'
       - 'docker-compose.yml'
       - '.dockerignore'
+      # This PR run only validates the compose file and shell scripts - it
+      # installs no Python package and runs no test. It must therefore not
+      # start for a PR that only changes pip requirements (e.g. a Dependabot
+      # security update): docker-maintenance.yml would read its success as
+      # "tested" and merge the update.
+      - '!src/requirements*.txt'
+      - '!tools/requirements*.txt'
   workflow_dispatch:
     inputs:
       force-release:

@@ -1,10 +1,9 @@
 # =============================================================================
 # Docker Maintenance - Auto-merge Dependabot PRs
 # =============================================================================
-# Automatically merges Dependabot PRs for Docker base image updates.
-# After merge, the docker-release.yml workflow is triggered which:
-# 1. Creates a semantic release
-# 2. Builds and pushes the new Docker image
+# Decides on every Dependabot PR and merges it only once the PR CI named
+# in required-workflows has run on it and passed. After a merge,
+# release.yml runs on main and creates the semantic release.
 #
 # Flow:
 # ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
@@ -22,11 +21,13 @@
 name: 🔧 Docker Maintenance
 
 on:
+  # No paths filter: every Dependabot PR - docker, github-actions, pip
+  # security updates and any ecosystem added later - reaches the module
+  # and gets a decision with an annotation instead of silently staying
+  # open. GitHub Actions updates and other .github/ changes stay manual
+  # by the module's own guard; jobs of non-Dependabot PRs are skipped.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'Dockerfile'
-      # - 'tools/Dockerfile'
 
 permissions:
   contents: write
@@ -39,8 +40,9 @@ jobs:
     with:
       merge-method: 'squash'
       auto-approve: true
-      # The repository's CI. It does not run for a Dockerfile change and
-      # builds no image, so Dockerfile updates stay open for review -
-      # nothing tests them before the merge.
+      # The repository's CI. Its PR run validates the compose file and the
+      # shell scripts but builds no image and runs no test, so it does not
+      # start for a Dockerfile or pip requirements change: Docker base
+      # image and pip updates stay open as "not tested" for review.
       required-workflows: '.github/workflows/release.yml'
     secrets: inherit

@@ -16,6 +16,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Confirm
 
+from backup.git_operations import git_env
 from config import Settings
 from storage.s3_client import S3Storage
 from ui.console import format_size
@@ -239,16 +240,17 @@ def restore_github(
             console.print("Restoring LFS objects...")
             _restore_lfs_objects(lfs_archive, temp_dir)
 
-        # Set remote
-        remote_url = f"https://{settings.github_pat}@github.com/{target_repo}.git"
+        # Set remote (token goes through the credential helper, not the URL)
+        remote_url = f"https://github.com/{target_repo}.git"
         subprocess.run(
             ["git", "remote", "set-url", "origin", remote_url],
             cwd=temp_dir, check=True, capture_output=True
         )
 
         # Push
+        env = git_env(settings.git_token)
         push_args = ["git", "push", "--mirror" if force else "--all", "origin"]
-        result = subprocess.run(push_args, cwd=temp_dir, capture_output=True, text=True)
+        result = subprocess.run(push_args, cwd=temp_dir, capture_output=True, text=True, env=env)
 
         if result.returncode != 0:
             console.print(f"[red]Push failed: {result.stderr}[/]")
@@ -259,7 +261,7 @@ def restore_github(
         # Push LFS objects if present
         if lfs_archive:
             console.print("Pushing LFS objects...")
-            if _push_lfs_objects(temp_dir):
+            if _push_lfs_objects(temp_dir, env):
                 console.print("[green]✓ LFS objects pushed[/]")
 
     finally:
@@ -506,11 +508,12 @@ def _restore_lfs_objects(lfs_archive: Path, repo_path: Path) -> bool:
         return False
 
 
-def _push_lfs_objects(repo_path: Path) -> bool:
+def _push_lfs_objects(repo_path: Path, env: Optional[dict[str, str]] = None) -> bool:
     """Push LFS objects to remote.
 
     Args:
         repo_path: Path to the repository.
+        env: Environment for git (e.g. GitHub credentials); None inherits ours.
 
     Returns:
         True if LFS push was successful.
@@ -520,7 +523,8 @@ def _push_lfs_objects(repo_path: Path) -> bool:
             ["git", "lfs", "push", "--all", "origin"],
             cwd=repo_path,
             capture_output=True,
-            text=True
+            text=True,
+            env=env,
         )
 
         if result.returncode != 0:
@@ -564,14 +568,17 @@ def _restore_wiki_to_github(
     try:
         _clone_from_bundle(wiki_bundle, temp_dir)
 
-        remote_url = f"https://{settings.github_pat}@github.com/{target_repo}.wiki.git"
+        remote_url = f"https://github.com/{target_repo}.wiki.git"
         subprocess.run(
             ["git", "remote", "set-url", "origin", remote_url],
             cwd=temp_dir, check=True, capture_output=True
         )
 
         push_args = ["git", "push", "--mirror" if force else "--all", "origin"]
-        result = subprocess.run(push_args, cwd=temp_dir, capture_output=True, text=True)
+        result = subprocess.run(
+            push_args, cwd=temp_dir, capture_output=True, text=True,
+            env=git_env(settings.git_token),
+        )
 
         if result.returncode == 0:
             console.print(f"[green]✓ Wiki restored to {target_repo}.wiki[/]")

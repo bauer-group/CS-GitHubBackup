@@ -239,6 +239,11 @@ class Settings(BaseSettings):
         """Check if GitHub PAT is configured for authenticated access."""
         return bool(self.github_pat and self.github_pat.strip())
 
+    @property
+    def git_token(self) -> Optional[str]:
+        """Token for git operations (clone, LFS, push), or None when anonymous."""
+        return self.github_pat.strip() if self.is_authenticated else None
+
     # === Application Configuration ===
     tz: str = Field(
         default="Etc/UTC",

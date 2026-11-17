@@ -1202,6 +1202,20 @@ This structure allows logical browsing: **owner → repository → backup histor
 - Check that the token hasn't expired
 - Verify `GITHUB_OWNER` matches the token's access scope
 
+### `could not read Username for 'https://github.com'`
+
+Private repositories fail with `warning: redirecting to https://github.com/...`
+followed by `fatal: could not read Username for 'https://github.com': terminal prompts disabled`.
+
+Images before this fix embedded the PAT in the clone URL (`https://TOKEN@github.com/...`).
+libcurl builds with the CVE-2026-94266 fix strip credentials from the effective URL, and git
+builds without the matching compat patch then drop the token. Rebuild or pull the current image:
+it passes the token through a credential helper instead. If the error persists, check that
+`GITHUB_PAT` is set and has *Contents: read* access to the repository.
+
+For `cli restore git` with a credential-bearing remote URL, put the token in the password slot
+(`https://user:TOKEN@host/...`) rather than as the bare username (`https://TOKEN@host/...`).
+
 ### S3 Connection Failed
 
 - Verify `S3_ENDPOINT_URL` is correct and accessible
@@ -1229,6 +1243,7 @@ For large organizations, GitHub API rate limits may apply. The tool handles this
 
 - **Never commit `.env`** - Contains sensitive credentials
 - **Token Permissions** - Use minimum required permissions
+- **Token Handling** - git receives the PAT through a credential helper scoped to `https://github.com`, read from an environment variable of the git child process. It never appears in clone URLs, command lines, `.git/config` or error messages
 - **S3 Bucket** - Enable versioning and appropriate access policies
 - **Container User** - Runs as non-root user (UID 1000)
 - **Tini Init** - Proper signal handling and zombie process reaping

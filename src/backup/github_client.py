@@ -297,31 +297,23 @@ class GitHubBackupClient:
     def get_clone_url(self, repo_info: RepoInfo) -> str:
         """Get the clone URL for a repository.
 
-        For authenticated mode, embeds the PAT in the URL for all repos.
-        This is necessary because:
-        - Private repos require authentication
-        - Internal org repos (not public, not private) require authentication
-        - Using token for public repos doesn't hurt and increases rate limit
+        The URL never carries the token. GitBackup authenticates through a
+        credential helper instead (see git_operations.git_env): credentials
+        embedded in the URL are dropped when a libcurl with the CVE-2026-94266
+        fix meets a git build without the matching compat patch.
 
         Args:
             repo_info: Repository information.
 
         Returns:
-            Clone URL (with embedded PAT when authenticated).
+            Plain HTTPS clone URL as reported by the GitHub API.
         """
-        clone_url = repo_info.repo.clone_url
-
-        # Always embed token when authenticated - needed for private repos,
-        # internal org repos, and doesn't hurt for public repos
-        if self._authenticated:
-            return clone_url.replace(
-                "https://",
-                f"https://{self.settings.github_pat}@"
-            )
-        return clone_url
+        return repo_info.repo.clone_url
 
     def get_wiki_url(self, repo_info: RepoInfo) -> Optional[str]:
         """Get the wiki clone URL if wiki is enabled.
+
+        Like get_clone_url, the URL never carries the token.
 
         Args:
             repo_info: Repository information.
@@ -332,21 +324,11 @@ class GitHubBackupClient:
         if not repo_info.has_wiki:
             return None
 
-        # Use removesuffix to only replace the trailing .git, not .git in repo names like .github
+        # Replace only the trailing .git, not .git inside names like .github
         clone_url = repo_info.repo.clone_url
         if clone_url.endswith(".git"):
-            wiki_url = clone_url[:-4] + ".wiki.git"
-        else:
-            wiki_url = clone_url + ".wiki.git"
-
-        # Always embed token when authenticated - needed for private repos,
-        # internal org repos, and doesn't hurt for public repos
-        if self._authenticated:
-            wiki_url = wiki_url.replace(
-                "https://",
-                f"https://{self.settings.github_pat}@"
-            )
-        return wiki_url
+            return clone_url[:-4] + ".wiki.git"
+        return clone_url + ".wiki.git"
 
     def count_repositories(self) -> int:
         """Count the total number of repositories to backup.

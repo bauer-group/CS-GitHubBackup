@@ -177,7 +177,7 @@ def run_backup(settings: Settings) -> bool:
         work_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize backup components
-        git_backup = GitBackup(work_dir)
+        git_backup = GitBackup(work_dir, token=settings.git_token)
         metadata_exporter = MetadataExporter(work_dir)
         wiki_backup = WikiBackup(git_backup)
 

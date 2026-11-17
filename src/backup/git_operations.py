@@ -18,6 +18,70 @@ from git import Repo, GitCommandError
 
 from ui.console import backup_logger
 
+# Environment variable that carries the token to git's credential helper. The
+# helper reads it at call time, so the token never appears in a remote URL, on
+# a command line, or in a repository's on-disk config.
+GIT_TOKEN_ENV_VAR = "GITHUB_BACKUP_GIT_TOKEN"
+
+# Inline credential helper: answers git's "get" request and ignores
+# "store"/"erase". "x-access-token" is the username GitHub documents for App
+# tokens; for PATs GitHub ignores the username, so it fits every token type.
+_CREDENTIAL_HELPER = (
+    '!f() { test "$1" = get || return 0; '
+    "echo username=x-access-token; "
+    f"printf 'password=%s\\n' \"${GIT_TOKEN_ENV_VAR}\"; }}; f"
+)
+
+
+def git_env(token: Optional[str] = None, host: str = "github.com") -> dict[str, str]:
+    """Build the environment for git subprocesses.
+
+    Git never prompts. With a token, git authenticates through an inline
+    credential helper scoped to ``https://<host>``. The helper is injected via
+    ``GIT_CONFIG_*`` environment variables (git >= 2.31), not embedded in the
+    remote URL.
+
+    Why not ``https://TOKEN@host/...``: libcurl builds that carry the
+    CVE-2026-94266 fix strip credentials from CURLINFO_EFFECTIVE_URL. Git builds
+    without the matching compat patch take that as a redirect, rebuild the
+    remote URL without the token, and fail the next request with "could not
+    read Username". With the helper, the URL carries no credentials, so libcurl
+    has nothing to strip and git never sees a false redirect. On real redirects
+    (renamed or transferred repositories) git asks the helper again after the
+    401. The helper is scoped to the host, so a redirect to any other host
+    never receives the token.
+
+    git-lfs only asks for credentials after a 401 by default. Setting
+    ``lfs.<url>.access=basic`` makes it authenticate LFS batch requests up
+    front, as it did when the token sat in the URL, so public LFS repos keep
+    using the authenticated rate limit.
+
+    Args:
+        token: GitHub token, or None for anonymous access.
+        host: Host the credential helper answers for.
+
+    Returns:
+        A full environment dict (os.environ plus git settings).
+    """
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    if not token:
+        return env
+
+    # Append to config entries the caller's environment may already inject
+    base = int(env.get("GIT_CONFIG_COUNT") or 0)
+    helper_key = f"credential.https://{host}.helper"
+    entries = [
+        (helper_key, ""),  # an empty value resets helpers from system/global config
+        (helper_key, _CREDENTIAL_HELPER),
+        (f"lfs.https://{host}.access", "basic"),
+    ]
+    for offset, (name, value) in enumerate(entries, start=base):
+        env[f"GIT_CONFIG_KEY_{offset}"] = name
+        env[f"GIT_CONFIG_VALUE_{offset}"] = value
+    env["GIT_CONFIG_COUNT"] = str(base + len(entries))
+    env[GIT_TOKEN_ENV_VAR] = token
+    return env
+
 
 def mask_credentials(text: str) -> str:
     """Mask embedded credentials in URLs within a string.
@@ -48,14 +112,17 @@ class BackupResult:
 class GitBackup:
     """Handles git operations for backup."""
 
-    def __init__(self, work_dir: Path):
+    def __init__(self, work_dir: Path, token: Optional[str] = None):
         """Initialize git backup handler.
 
         Args:
             work_dir: Working directory for backup operations.
+            token: GitHub token for private repositories, LFS and wikis.
+                Passed to git through a credential helper (see git_env).
         """
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
+        self._env = git_env(token)
 
     def mirror_clone(self, repo_url: str, repo_name: str) -> Path:
         """Clone a repository as a mirror.
@@ -82,7 +149,7 @@ class GitBackup:
             repo_url,
             str(mirror_path),
             mirror=True,
-            env={"GIT_TERMINAL_PROMPT": "0"},
+            env=self._env,
             kill_after_timeout=3600,
         )
 
@@ -103,7 +170,7 @@ class GitBackup:
                 cwd=str(mirror_path),
                 capture_output=True,
                 text=True,
-                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+                env=self._env
             )
             return result.returncode != 0
         except Exception:
@@ -142,7 +209,7 @@ class GitBackup:
                 capture_output=True,
                 text=True,
                 check=True,
-                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+                env=self._env
             )
         except subprocess.CalledProcessError as e:
             # Double-check for empty bundle error
@@ -180,7 +247,7 @@ class GitBackup:
                 cwd=str(mirror_path),
                 capture_output=True,
                 text=True,
-                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+                env=self._env
             )
 
             # If there's output, repo has LFS files
@@ -211,7 +278,7 @@ class GitBackup:
                 cwd=str(mirror_path),
                 capture_output=True,
                 text=True,
-                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+                env=self._env,
                 timeout=3600,  # 1 hour timeout for large LFS repos
             )
 

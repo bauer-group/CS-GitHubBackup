@@ -1,3 +1,22 @@
+# Changelog
+
+All notable changes to this project are documented here. This file is maintained
+automatically by [semantic-release](https://github.com/semantic-release/semantic-release)
+on every release to `main`.
+
+## [0.1.5](https://github.com/bauer-group/CS-GitHubBackup/compare/v0.1.4...v0.1.5) (2026-11-17)
+
+### 🐛 Bug Fixes
+
+* **backup:** passed the GitHub token via credential helper, not the URL ([29e94a2](https://github.com/bauer-group/CS-GitHubBackup/commit/29e94a20020675186a278a02e76fc4f60be29860))
+* **ci:** granted scopes the called modules need ([45c3330](https://github.com/bauer-group/CS-GitHubBackup/commit/45c3330f328b8eb179d52a6bf9a16fd2727b642d))
+
+### 🔧 Maintenance
+
+* **ci:** removed issue AI summary workflow ([00a8a1b](https://github.com/bauer-group/CS-GitHubBackup/commit/00a8a1b71889c42d8c16d3aca42378340d95abc6)), references [bauer-group/automation-templates#105](https://github.com/bauer-group/automation-templates/issues/105)
+* **ci:** removed redundant teams notification ([674af46](https://github.com/bauer-group/CS-GitHubBackup/commit/674af46785372306171dafd6fa876259ef289935))
+* **codeowners:** reassigned ownership to core team [skip ci] ([8b81764](https://github.com/bauer-group/CS-GitHubBackup/commit/8b81764a914920fe03f5b48be0e0a677fb752c3f))
+
 ## [0.1.4](https://github.com/bauer-group/CS-GitHubBackup/compare/v0.1.3...v0.1.4) (2026-06-28)
 
 ## [0.1.3](https://github.com/bauer-group/CS-GitHubBackup/compare/v0.1.2...v0.1.3) (2026-04-01)
